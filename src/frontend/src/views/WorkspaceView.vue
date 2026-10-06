@@ -60,6 +60,7 @@ import {
 } from "../lib/api";
 import Modal from "../components/Modal.vue";
 import Markdown from "../components/Markdown.vue";
+import { renderMarkdownDocument } from "../lib/markdown";
 const route = useRoute();
 const router = useRouter();
 const session = useSession();
@@ -887,10 +888,135 @@ async function openSource(source: Source) {
   }
   await showPreview(`/sources/${source.id}/preview`);
 }
-function sourceFromMessage(id: string, message: Message) {
-  const source = message.sources.find((s) => s.id === id);
+function sourceFromMessage(id: string, message: Message, anchor: HTMLElement) {
+  const source = message.sources.find(
+    (s) => s.id.toLowerCase() === id.toLowerCase(),
+  );
   if (source && message.response_status === "succeeded")
-    guard(() => openSource(source));
+    toggleSource(source, anchor);
+}
+const activeSource = ref<Source | null>(null);
+const sourcePanel = ref<HTMLElement>();
+const sourcePosition = ref({ left: "8px", top: "8px", width: "360px" });
+let sourceAnchor: HTMLElement | null = null;
+let sourceFrame = 0;
+function closeSource(restoreFocus = false) {
+  if (restoreFocus && sourceAnchor?.isConnected) sourceAnchor.focus();
+  activeSource.value = null;
+  sourceAnchor = null;
+}
+function closeMenus(except?: HTMLDetailsElement) {
+  document
+    .querySelectorAll<HTMLDetailsElement>(".object-menu[open]")
+    .forEach((menu) => {
+      if (menu !== except) menu.open = false;
+    });
+}
+function menuToggled(event: Event) {
+  const menu = event.currentTarget as HTMLDetailsElement;
+  if (menu.open) {
+    closeMenus(menu);
+    closeSource();
+  }
+}
+function menuAction(event: MouseEvent) {
+  if ((event.target as Element).closest(".menu button"))
+    (event.currentTarget as HTMLDetailsElement).open = false;
+}
+function dismissOutside(event: PointerEvent) {
+  const target = event.target as Node;
+  document
+    .querySelectorAll<HTMLDetailsElement>(".object-menu[open]")
+    .forEach((menu) => {
+      if (!menu.contains(target)) menu.open = false;
+    });
+  if (
+    activeSource.value &&
+    !sourcePanel.value?.contains(target) &&
+    !sourceAnchor?.contains(target)
+  )
+    closeSource();
+}
+function dismissEscape(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  if (activeSource.value) {
+    event.preventDefault();
+    closeSource(true);
+    return;
+  }
+  const menu = document.querySelector<HTMLDetailsElement>(".object-menu[open]");
+  if (menu) {
+    event.preventDefault();
+    menu.open = false;
+    menu.querySelector<HTMLElement>("summary")?.focus();
+  }
+}
+function positionSource() {
+  if (!activeSource.value) return;
+  if (!sourceAnchor?.isConnected) {
+    closeSource();
+    return;
+  }
+  const rect = sourceAnchor.getBoundingClientRect();
+  if (
+    rect.bottom < 0 ||
+    rect.top > innerHeight ||
+    rect.right < 0 ||
+    rect.left > innerWidth
+  ) {
+    closeSource();
+    return;
+  }
+  const scroller = sourceAnchor.closest(".chat-scroll");
+  if (scroller) {
+    const bounds = scroller.getBoundingClientRect();
+    if (rect.bottom < bounds.top || rect.top > bounds.bottom) {
+      closeSource();
+      return;
+    }
+  }
+  const width = Math.min(360, innerWidth - 16);
+  const height = Math.min(
+    sourcePanel.value?.offsetHeight ?? 320,
+    innerHeight - 16,
+  );
+  const below = rect.bottom + 8;
+  const top = below + height <= innerHeight - 8 ? below : rect.top - height - 8;
+  sourcePosition.value = {
+    width: `${width}px`,
+    left: `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`,
+    top: `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`,
+  };
+}
+function scheduleSourcePosition() {
+  cancelAnimationFrame(sourceFrame);
+  sourceFrame = requestAnimationFrame(positionSource);
+}
+async function toggleSource(source: Source, anchor: HTMLElement) {
+  if (sourceAnchor === anchor && activeSource.value) {
+    closeSource();
+    return;
+  }
+  closeMenus();
+  activeSource.value = source;
+  sourceAnchor = anchor;
+  await nextTick();
+  positionSource();
+  sourcePanel.value?.focus({ preventScroll: true });
+}
+function uncitedSources(message: Message) {
+  const ids = new Set(
+    renderMarkdownDocument(message.content_text, message.sources).citedIds,
+  );
+  return message.sources.filter((source) => !ids.has(source.id.toLowerCase()));
+}
+function safeSourceUrl(source: Source) {
+  return source.url && /^https?:\/\//i.test(source.url) ? source.url : null;
+}
+function fullSourcePreview(source: Source) {
+  if (!source.file_id || source.status === "deleted") return;
+  closeSource();
+  guard(() => showPreview(`/files/${source.file_id}/preview`));
 }
 function showImage(images: Attachment[], index: number) {
   previewImage.value = { images, index };
@@ -1048,6 +1174,33 @@ function locator(source: Source) {
   return "";
 }
 let filePoll: ReturnType<typeof setInterval>;
+onMounted(() => {
+  document.addEventListener("pointerdown", dismissOutside);
+  document.addEventListener("keydown", dismissEscape);
+  window.addEventListener("scroll", scheduleSourcePosition, true);
+  window.addEventListener("resize", scheduleSourcePosition);
+});
+watch(
+  [
+    () => route.fullPath,
+    conversationId,
+    agentId,
+    libraryId,
+    collapsed,
+    agentExpanded,
+  ],
+  () => {
+    closeMenus();
+    closeSource();
+  },
+);
+watch(modal, (value) => {
+  if (value) {
+    closeMenus();
+    closeSource();
+  }
+});
+watch(messages, scheduleSourcePosition, { flush: "post", deep: true });
 onMounted(() =>
   guard(async () => {
     await loadResources();
@@ -1069,6 +1222,11 @@ watch(isKnowledge, () => {
   target.value = null;
 });
 onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", dismissOutside);
+  document.removeEventListener("keydown", dismissEscape);
+  window.removeEventListener("scroll", scheduleSourcePosition, true);
+  window.removeEventListener("resize", scheduleSourcePosition);
+  cancelAnimationFrame(sourceFrame);
   unsubscribe?.();
   promptUnsubscribe?.();
   clearInterval(filePoll);
@@ -1153,7 +1311,11 @@ onBeforeUnmount(() => {
             >
               <Plus :size="15" />
             </button>
-            <details class="object-menu">
+            <details
+              class="object-menu"
+              @toggle="menuToggled"
+              @click="menuAction"
+            >
               <summary aria-label="智能体操作">
                 <MoreHorizontal :size="16" />
               </summary>
@@ -1188,7 +1350,11 @@ onBeforeUnmount(() => {
               >
                 <MessageSquare :size="14" /><span>{{ conv.name }}</span>
               </button>
-              <details class="object-menu">
+              <details
+                class="object-menu"
+                @toggle="menuToggled"
+                @click="menuAction"
+              >
                 <summary aria-label="对话操作">
                   <MoreHorizontal :size="15" />
                 </summary>
@@ -1242,7 +1408,11 @@ onBeforeUnmount(() => {
               ></span
             >
           </button>
-          <details class="object-menu">
+          <details
+            class="object-menu"
+            @toggle="menuToggled"
+            @click="menuAction"
+          >
             <summary aria-label="知识库操作">
               <MoreHorizontal :size="16" />
             </summary>
@@ -1439,11 +1609,20 @@ onBeforeUnmount(() => {
                 </div>
                 <Markdown
                   :text="message.content_text"
+                  :sources="
+                    message.role === 'assistant'
+                      ? message.response_status === 'succeeded'
+                        ? message.sources
+                        : candidateSources(message)
+                      : undefined
+                  "
                   :interactive="
                     message.role === 'user' ||
                     message.response_status === 'succeeded'
                   "
-                  @source="(id) => sourceFromMessage(id, message)"
+                  @source="
+                    (id, anchor) => sourceFromMessage(id, message, anchor)
+                  "
                 />
                 <div
                   v-if="
@@ -1458,36 +1637,57 @@ onBeforeUnmount(() => {
                     task?.progress.label ?? "等待处理"
                   }}</span>
                 </div>
-                <div v-if="message.sources.length" class="sources">
-                  <button
-                    v-for="source in message.sources"
-                    :key="source.id"
-                    :class="{ unavailable: source.status === 'deleted' }"
-                    @click="guard(() => openSource(source))"
-                  >
-                    <FileText :size="13" />{{ source.title
-                    }}<span>{{
-                      source.status === "deleted"
-                        ? "来源已删除"
-                        : locator(source)
-                    }}</span>
-                  </button>
-                </div>
-                <div v-if="candidateSources(message).length" class="sources">
-                  <button
-                    v-for="source in candidateSources(message)"
-                    :key="source.id"
-                    disabled
-                    title="本次结果尚未正式保存，候选引用不可打开"
-                  >
-                    <FileText :size="13" />{{ source.title }} ·
-                    {{
-                      source.status === "deleted"
-                        ? "来源已删除"
-                        : "候选依据 · 未保存"
-                    }}
-                  </button>
-                </div>
+                <details
+                  v-if="uncitedSources(message).length"
+                  class="reference-disclosure"
+                >
+                  <summary>
+                    参考资料（{{ uncitedSources(message).length }}）
+                  </summary>
+                  <div class="sources">
+                    <button
+                      v-for="source in uncitedSources(message)"
+                      :key="source.id"
+                      :class="{ unavailable: source.status === 'deleted' }"
+                      @click="
+                        toggleSource(
+                          source,
+                          $event.currentTarget as HTMLElement,
+                        )
+                      "
+                    >
+                      <FileText :size="13" />{{ source.title
+                      }}<span>{{
+                        source.status === "deleted"
+                          ? "来源已删除"
+                          : locator(source)
+                      }}</span>
+                    </button>
+                  </div>
+                </details>
+                <details
+                  v-if="candidateSources(message).length"
+                  class="reference-disclosure"
+                >
+                  <summary>
+                    候选资料（{{ candidateSources(message).length }}）· 未保存
+                  </summary>
+                  <div class="sources">
+                    <button
+                      v-for="source in candidateSources(message)"
+                      :key="source.id"
+                      disabled
+                      title="本次结果尚未正式保存，候选引用不可打开"
+                    >
+                      <FileText :size="13" />{{ source.title }} ·
+                      {{
+                        source.status === "deleted"
+                          ? "来源已删除"
+                          : "候选依据 · 未保存"
+                      }}
+                    </button>
+                  </div>
+                </details>
                 <div
                   v-if="
                     message.response_status === 'succeeded' &&
@@ -1842,6 +2042,49 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
+  <Teleport to="body">
+    <section
+      v-if="activeSource"
+      ref="sourcePanel"
+      class="source-popover"
+      :style="sourcePosition"
+      role="dialog"
+      tabindex="-1"
+      aria-label="引用来源"
+    >
+      <header>
+        <strong>{{ activeSource.title }}</strong>
+        <button
+          class="icon-button"
+          aria-label="关闭引用来源"
+          @click="closeSource(true)"
+        >
+          ×
+        </button>
+      </header>
+      <small v-if="locator(activeSource)">{{ locator(activeSource) }}</small>
+      <p v-if="activeSource.status === 'deleted'" class="muted">
+        来源已删除，以下为引用时保留的片段。
+      </p>
+      <div class="source-excerpt">
+        {{ activeSource.excerpt || "暂无可用片段。" }}
+      </div>
+      <a
+        v-if="activeSource.kind === 'web' && safeSourceUrl(activeSource)"
+        :href="safeSourceUrl(activeSource)!"
+        target="_blank"
+        rel="noopener noreferrer"
+        >{{ activeSource.url }}</a
+      >
+      <button
+        v-if="activeSource.kind === 'file'"
+        :disabled="activeSource.status === 'deleted' || !activeSource.file_id"
+        @click="fullSourcePreview(activeSource)"
+      >
+        查看完整文档
+      </button>
+    </section>
+  </Teleport>
   <Modal
     :open="!!modal"
     :title="modalTitle"

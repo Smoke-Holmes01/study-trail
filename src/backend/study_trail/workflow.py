@@ -20,7 +20,8 @@ GUARD = """你是学迹的在线教育学习助手。用简体中文提供清晰
 只引用给出的真实 source_id；无来源明确说明是模型知识/建议/学迹推导。
 不要声称已保存计划，最终保存由服务端完成。不要输出密钥、内部推理或 HTML。
 用户未给期限，不要创造截止日期。习题首次只显示题目，不显示答案。
-引用格式为 [来源名称](source:UUID)，网络链接只能使用给定的真实地址。"""
+引用格式为 [来源名称](source:UUID)，必须紧跟其支持的句子或列表条目，不集中堆在回答末尾。
+同一片段可以在不同句子重复引用；没有实际依据的句子不要附引用。网络来源也使用 source 引用，网络链接只能使用给定的真实地址。"""
 
 
 class State(TypedDict, total=False):
@@ -680,6 +681,7 @@ async def answer_stream(state):
         labels = {"original": "资料原题", "adapted": "改编题", "generated": "AI 生成"}
         text = "\n\n".join(
             f"### 第 {i + 1} 题 · {labels[e['provenance']]}\n\n{e['question_text']}"
+            + render_source_links(e.get("source_ids", []))
             for i, e in enumerate(exercise_list)
         )
     else:
@@ -787,6 +789,22 @@ async def plan_repair(state):
     return {"plan": candidate, "repair_used": True}
 
 
+def render_source_links(ids):
+    return "".join(
+        f" [来源](source:{ident})" for ident in dict.fromkeys(str(UUID(str(ident))) for ident in ids)
+    )
+
+
+def validate_answer_sources(answer, sources):
+    valid = {str(UUID(str(source["id"]))) for source in sources}
+    try:
+        cited = {str(UUID(ident)) for ident in re.findall(r"source:([0-9a-f-]{36})", answer, re.IGNORECASE)}
+    except ValueError as error:
+        raise c.Problem("SOURCE_UNAVAILABLE", "回答引用不在实际依据中", 409) from error
+    if not cited.issubset(valid):
+        raise c.Problem("SOURCE_UNAVAILABLE", "回答引用不在实际依据中", 409)
+
+
 def render_plan(value):
     text = f"# {value['title']}\n\n{value['goal']}\n"
     if value["deadline"]:
@@ -798,7 +816,8 @@ def render_plan(value):
             + "\n"
         )
         for task in stage["tasks"]:
-            text += f"\n- **{task['title']}** · {task['estimated_minutes']} 分钟\n"
+            text += f"\n- **{task['title']}** · {task['estimated_minutes']} 分钟"
+            text += render_source_links(task.get("resource_source_ids", [])) + "\n"
             if task["exercise_suggestions"]:
                 text += "  练习建议：" + "；".join(task["exercise_suggestions"]) + "\n"
     return text
@@ -821,10 +840,7 @@ async def atomic_commit(state):
             if plan_row["content_version"] != row["base_plan_version"]:
                 raise c.Problem("PLAN_VERSION_CONFLICT", "计划已更新，请查看最新版后重试", 409)
         sources = state["sources"]
-        valid_ids = {str(x["id"]) for x in sources}
-        cited = set(re.findall(r"source:([0-9a-fA-F-]{36})", state["answer"]))
-        if not cited.issubset(valid_ids):
-            raise c.Problem("SOURCE_UNAVAILABLE", "回答引用不在实际依据中", 409)
+        validate_answer_sources(state["answer"], sources)
         for source in sorted(sources, key=lambda x: str(x.get("file_id") or "")):
             if source["kind"] == "file":
                 file = (
@@ -901,6 +917,7 @@ async def atomic_commit(state):
                     )
                 )
             answer = render_plan({"title": plan_row["name"], **value})
+            validate_answer_sources(answer, sources)
             mutation = {
                 "kind": kind,
                 "plan_id": str(plan_row["id"]),
