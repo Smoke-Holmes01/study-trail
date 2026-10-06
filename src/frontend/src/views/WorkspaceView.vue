@@ -63,6 +63,7 @@ import AgentCapabilities from "../components/AgentCapabilities.vue";
 import SkillPicker from "../components/SkillPicker.vue";
 import type { Skill, MCPServer } from "../lib/api";
 import Markdown from "../components/Markdown.vue";
+import ModelSelect from "../components/ModelSelect.vue";
 import { renderMarkdownDocument } from "../lib/markdown";
 const route = useRoute();
 const router = useRouter();
@@ -837,8 +838,7 @@ async function retryPrompt() {
       ).task,
     );
 }
-async function changeModel(event: Event) {
-  const value = (event.target as HTMLSelectElement).value;
+async function changeModel(value: string) {
   try {
     const result = await patch<Agent>(`/agents/${agentId.value}`, {
       model_id: value,
@@ -1966,27 +1966,12 @@ onBeforeUnmount(() => {
                 >
                   <Paperclip :size="20" />
                 </button>
-                <select
-                  aria-label="选择生成模型"
+                <ModelSelect
+                  :key="agentId"
+                  :models="models"
                   :value="selectedAgent.model_id"
-                  @change="changeModel"
-                >
-                  <option
-                    v-if="!modelAvailable"
-                    :value="selectedAgent.model_id"
-                    disabled
-                  >
-                    当前模型不可用
-                  </option>
-                  <option
-                    v-for="model in models"
-                    :key="model.id"
-                    :value="model.id"
-                  >
-                    {{ model.display_name
-                    }}{{ model.supports_images ? " · 图片" : " · 文字" }}
-                  </option>
-                </select>
+                  @select="changeModel"
+                />
                 <small>{{
                   generating
                     ? task?.cancel_requested

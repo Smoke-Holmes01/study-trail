@@ -46,7 +46,7 @@ async def lifespan(app):
         pass
 
 
-app = FastAPI(title="学迹 Study Trail", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="学迹 Study Trail", version="0.2.1", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 

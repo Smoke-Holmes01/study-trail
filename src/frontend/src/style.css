@@ -1073,13 +1073,122 @@ button,
 .composer-tools small {
   font-size: 10px;
 }
-.composer-tools select {
-  max-width: 220px;
-  font-size: 11px;
+.model-select-trigger {
+  max-width: 300px;
   min-height: 32px;
-  padding: 5px 6px;
-  border: 0;
+  padding: 5px 8px;
+  gap: 7px;
+  border-color: transparent;
+  border-radius: 9px;
   background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.model-select-trigger > svg {
+  flex-shrink: 0;
+}
+.model-select-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-select-trigger.expanded {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+.model-capability {
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--muted);
+  padding: 2px 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.model-select-chevron {
+  transition: transform 0.15s;
+}
+.model-select-trigger.expanded .model-select-chevron {
+  transform: rotate(180deg);
+}
+.model-select-panel {
+  position: fixed;
+  z-index: 100;
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--body);
+  box-shadow:
+    0 12px 36px #0002,
+    0 2px 6px #0001;
+  padding: 6px;
+}
+.model-select-heading {
+  padding: 7px 10px 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.model-select-options {
+  max-height: 280px;
+  overflow-y: auto;
+}
+.model-select-options > button {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  padding: 11px 10px;
+  gap: 10px;
+  text-align: left;
+  justify-content: flex-start;
+}
+.model-select-options > button.selected {
+  background: var(--accent-soft);
+}
+.model-select-options > button:focus-visible {
+  outline-offset: -2px;
+}
+.model-option-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--soft);
+  color: var(--muted);
+}
+.selected .model-option-icon {
+  background: var(--surface);
+  color: var(--accent);
+}
+.model-option-label {
+  flex: 1;
+  min-width: 0;
+}
+.model-option-label strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.model-option-label small {
+  display: block;
+  font-size: 10px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.model-option-check {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.model-select-note {
+  border-top: 1px solid var(--border);
+  margin: 6px 4px 0;
+  padding: 9px 6px 4px;
+  font-size: 10px;
   color: var(--muted);
 }
 .agent-add {

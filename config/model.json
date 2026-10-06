@@ -1,5 +1,5 @@
 {
-  "default_model_id": "gemini-3.7-flash-high",
+  "default_model_id": "gemini-3.8-flash-high",
   "providers": {
     "generation": {
       "base_url": "{env:GENERATION_BASE_URL}",
