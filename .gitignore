@@ -1,0 +1,76 @@
+# Publish the application source tree and Git configuration only.
+/*
+!/.gitignore
+!/.gitattributes
+!/src/
+
+# Retain application source and the configuration needed to build and run it.
+/src/*
+!/src/backend/
+!/src/frontend/
+!/src/infra/
+!/src/scripts/
+
+# Keep local tests, documentation and development-only tooling out of releases.
+/src/backend/tests/
+/src/frontend/tests/
+/src/frontend/e2e/
+/src/frontend/vitest.config.ts
+/src/frontend/playwright.config.ts
+/src/backend/tools/*
+!/src/backend/tools/probe_providers.py
+!/src/backend/tools/export_openapi.py
+
+# Local credentials; only explicitly named examples belong in Git.
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Python dependencies, bytecode, caches and build output.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Frontend dependencies, caches and generated build/test reports.
+node_modules/
+.vite/
+.npm/
+*.tsbuildinfo
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+test-results/
+playwright-report/
+blob-report/
+
+# Local runtime files, database snapshots and editor/OS metadata.
+.local/
+.cache/
+*.log
+*.pid
+*.db
+*.sqlite
+*.sqlite3
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
