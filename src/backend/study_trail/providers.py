@@ -50,11 +50,56 @@ class Gateway:
             raise Problem("TASK_TIMEOUT", "任务处理超时，请重试", 409)
         return min(maximum, remaining)
 
-    async def complete(self, messages, json_mode=False, on_chunk=None):
+    def connection(self):
         cfg = settings()
+        provider = self.task["config_snapshot"].get(
+            "provider", {"base_url": "{env:GENERATION_BASE_URL}", "api_key": "{env:GENERATION_API_KEY}"}
+        )
+        url = cfg.resolve(provider["base_url"]).rstrip("/")
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+            raise Problem("MODEL_UNAVAILABLE", "模型连接配置不可用", 503)
+        return url, {"Authorization": "Bearer " + cfg.resolve(provider["api_key"])}
+
+    async def tool_turn(self, messages, tools):
         model = self.task["config_snapshot"]
+        url, headers = self.connection()
         payload = {
-            "model": model["model_id"],
+            "model": model.get("api_model_id", model["model_id"]),
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "max_tokens": model.get("max_output_tokens", 4096),
+            "stream": False,
+        }
+        try:
+            async with asyncio.timeout(self.timeout(120)):
+                async with httpx.AsyncClient(timeout=self.timeout(120), trust_env=False) as client:
+                    response = await client.post(url + "/chat/completions", headers=headers, json=payload)
+                    response.raise_for_status()
+                    choice = response.json()["choices"][0]
+            if choice.get("finish_reason") == "length":
+                raise Problem("MODEL_OUTPUT_LIMIT", "工具选择超过输出容量", 409)
+            message = choice["message"]
+            calls = message.get("tool_calls", [])
+            seen = set()
+            for call in calls:
+                if not isinstance(call.get("id"), str) or not call["id"] or call["id"] in seen:
+                    raise ValueError()
+                seen.add(call["id"])
+                if call.get("type") != "function" or not isinstance(call["function"]["arguments"], str):
+                    raise ValueError()
+            return {"role": "assistant", "content": message.get("content"), "tool_calls": calls}
+        except (httpx.TimeoutException, TimeoutError):
+            raise Problem("MODEL_TIMEOUT", "模型响应超时，请稍后重试", 409) from None
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            raise Problem("MODEL_UNAVAILABLE", "模型工具选择暂时不可用", 503) from None
+
+    async def complete(self, messages, json_mode=False, on_chunk=None):
+        model = self.task["config_snapshot"]
+        url, headers = self.connection()
+        payload = {
+            "model": model.get("api_model_id", model["model_id"]),
             "messages": messages,
             "max_tokens": model.get("max_output_tokens", 4096),
             "stream": on_chunk is not None,
@@ -64,11 +109,8 @@ class Gateway:
         try:
             async with asyncio.timeout(self.timeout(120)):
                 async with httpx.AsyncClient(timeout=self.timeout(120), trust_env=False) as client:
-                    headers = {"Authorization": f"Bearer {cfg.generation_api_key}"}
                     if not on_chunk:
-                        response = await client.post(
-                            cfg.generation_base_url + "/chat/completions", headers=headers, json=payload
-                        )
+                        response = await client.post(url + "/chat/completions", headers=headers, json=payload)
                         response.raise_for_status()
                         choice = response.json()["choices"][0]
                         if choice.get("finish_reason") == "length":
@@ -76,7 +118,7 @@ class Gateway:
                         return choice["message"].get("content") or ""
                     text = ""
                     async with client.stream(
-                        "POST", cfg.generation_base_url + "/chat/completions", headers=headers, json=payload
+                        "POST", url + "/chat/completions", headers=headers, json=payload
                     ) as response:
                         response.raise_for_status()
                         async for line in response.aiter_lines():
@@ -148,24 +190,21 @@ class Gateway:
         return indices
 
     async def search(self, query):
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamable_http_client
+        from . import mcp_tools
 
-        headers = {"x-api-key": settings().exa_api_key} if settings().exa_api_key else None
-        import httpx2
-
-        async with asyncio.timeout(self.timeout(30)):
-            async with httpx2.AsyncClient(
-                headers=headers, timeout=self.timeout(30), trust_env=False
-            ) as client:
-                async with streamable_http_client(settings().exa_url, http_client=client) as streams:
-                    async with ClientSession(streams[0], streams[1]) as session:
-                        await session.initialize()
-                        result = await session.call_tool("web_search_exa", {"query": query, "numResults": 5})
-                        if getattr(result, "is_error", getattr(result, "isError", False)):
-                            raise ValueError("search unavailable")
-                        text = "\n".join(block.text for block in result.content if block.type == "text")
-        return parse_search(text)
+        server = self.task["config_snapshot"].get("mcp_servers", {}).get("exa")
+        if not server:
+            return []
+        async with mcp_tools.connect(server, self.timeout(30)) as session:
+            tools = await mcp_tools.discover(session, "exa", server, self.timeout(30))
+            tool = next((tool for tool in tools if tool["name"] == "web_search_exa"), None)
+            if tool is None:
+                raise Problem("MCP_UNAVAILABLE", "搜索工具暂时不可用", 503)
+            arguments = {"query": query, "numResults": 5}
+            if "objective" in tool["input_schema"].get("required", []):
+                arguments["objective"] = "检索可核对的教育资料，优先可靠来源，回答：" + query
+            result = await mcp_tools.invoke(session, server, tool, arguments, self.timeout(30))
+        return parse_search(mcp_tools.text_result(result))
 
 
 def parse_search(text):

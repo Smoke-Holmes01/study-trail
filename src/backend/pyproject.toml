@@ -1,9 +1,9 @@
 [project]
 name = "study-trail"
-version = "0.1.1"
+version = "0.2.0"
 description = "Study Trail student tutoring platform"
 requires-python = ">=3.12,<3.13"
-dependencies = ["fastapi>=0.115", "uvicorn>=0.34", "pydantic-settings>=2.7", "sqlalchemy>=2.0", "psycopg[binary]>=3.2", "alembic>=1.14", "pgvector>=0.3", "pwdlib[argon2]>=0.2", "python-multipart>=0.0.20", "httpx>=0.28", "langgraph>=1.0", "mcp>=1.20", "pypdf>=5.0", "python-docx>=1.1", "pillow>=11.0"]
+dependencies = ["fastapi>=0.115", "uvicorn>=0.34", "pydantic-settings>=2.7", "sqlalchemy>=2.0", "psycopg[binary]>=3.2", "alembic>=1.14", "pgvector>=0.3", "pwdlib[argon2]>=0.2", "python-multipart>=0.0.20", "httpx>=0.28", "langgraph>=1.0", "mcp==2.3.0", "pyyaml>=6.0", "jsonschema>=4.0", "pypdf>=5.0", "python-docx>=1.1", "pillow>=11.0"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.25", "ruff>=0.9"]

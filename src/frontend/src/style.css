@@ -1030,6 +1030,7 @@ button,
   }
 }
 .composer-region {
+  position: relative;
   padding: 16px 36px 13px;
   width: 100%;
   max-width: 912px;
@@ -1401,6 +1402,239 @@ dialog > header .icon-button {
   padding: 0 30px 25px;
   overflow: auto;
   min-height: 0;
+}
+
+.agent-editor {
+  display: grid;
+  grid-template-columns: 165px minmax(0, 1fr);
+  gap: 28px;
+  min-height: 430px;
+}
+.agent-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-right: 1px solid var(--border);
+  padding-right: 16px;
+}
+.agent-tabs button {
+  border: 0;
+  text-align: left;
+  padding: 14px 16px;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 10px;
+  font-weight: 600;
+}
+.agent-tabs button.active {
+  background: var(--surface-hover, var(--border));
+  color: var(--body);
+}
+.agent-editor form {
+  min-width: 0;
+}
+.capability-panel h3 {
+  margin: 12px 0;
+}
+.capability-panel > .muted {
+  margin-bottom: 22px;
+}
+.capability-list {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.capability-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+}
+.capability-list .capability-row + .capability-row {
+  border-top: 1px solid var(--border);
+}
+.capability-copy {
+  min-width: 0;
+}
+.capability-copy strong {
+  overflow-wrap: anywhere;
+}
+.capability-copy p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 7px 0 0;
+}
+.connection-badge {
+  display: inline-block;
+  font-size: 12px;
+  margin-left: 9px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.connection-badge.connected {
+  color: #16843d;
+  background: #22c55e18;
+}
+.connection-badge.unavailable {
+  color: var(--error);
+}
+button.capability-switch {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 27px;
+  min-height: 27px;
+  border-radius: 20px;
+  padding: 3px;
+  border: 0;
+  background: #a3a6ab;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  transition: background 150ms;
+}
+.capability-switch span {
+  display: block;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px #0002;
+  transition: transform 150ms;
+}
+button.capability-switch:hover:not(:disabled) {
+  background: #a3a6ab;
+}
+button.capability-switch[aria-checked="true"],
+button.capability-switch[aria-checked="true"]:hover:not(:disabled) {
+  background: #20b544;
+}
+.capability-switch[aria-checked="true"] span {
+  transform: translateX(19px);
+}
+.skill-search {
+  margin: 12px 0;
+}
+.all-skills {
+  padding: 12px 0 20px;
+}
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.skill-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  align-items: flex-start;
+}
+.skill-card .capability-switch {
+  margin-top: 2px;
+}
+.selected-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 14px 0;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--border);
+  font-size: 13px;
+}
+.selected-skill button {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+}
+.skill-label {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.slash-picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 30px #0002;
+}
+.slash-picker .section-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.slash-picker small {
+  font-weight: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.slash-picker [role="option"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+  text-align: left;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 9px;
+}
+.slash-picker [role="option"].active {
+  background: var(--border);
+}
+.slash-picker [role="option"] span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.slash-picker > div > p {
+  padding: 12px;
+}
+@media (max-width: 700px) {
+  .agent-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+  }
+  .agent-tabs {
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 8px;
+  }
+  .agent-tabs button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: 12px;
+    padding: 10px 6px;
+  }
+  .skill-grid {
+    grid-template-columns: 1fr;
+  }
+  .slash-picker small {
+    display: none;
+  }
 }
 dialog > footer {
   border-top: 1px solid var(--border);

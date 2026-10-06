@@ -1,5 +1,7 @@
 import type { components } from "../generated/api";
 export type Student = components["schemas"]["StudentDTO"];
+export type Skill = components["schemas"]["SkillDTO"];
+export type MCPServer = components["schemas"]["MCPServerDTO"];
 export type Agent = components["schemas"]["AgentDTO"];
 export type Conversation = components["schemas"]["ConversationDTO"];
 export type Message = components["schemas"]["MessageDTO"];

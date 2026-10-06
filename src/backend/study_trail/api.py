@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
 from . import core as c
-from . import db
+from . import db, mcp_tools, skills
 from . import schemas as s
 from .body_limit import BodyLimitMiddleware
 from .config import settings
@@ -46,7 +46,7 @@ async def lifespan(app):
         pass
 
 
-app = FastAPI(title="学迹 Study Trail", version="0.1.1", lifespan=lifespan)
+app = FastAPI(title="学迹 Study Trail", version="0.2.0", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 
@@ -245,14 +245,92 @@ def models(ctx=D):
     items = [
         {
             "id": key,
-            "display_name": key.replace("-", " "),
+            "display_name": value.get("display_name", key.replace("-", " ")),
             "supports_images": bool(value.get("supports_images")),
             "enabled": True,
         }
         for key, value in settings().models().items()
         if value.get("enabled")
     ]
-    return c.envelope({"items": items, "default_model_id": settings().default_model_id})
+    return c.envelope({"items": items, "default_model_id": settings().default_model()})
+
+
+@app.get(PREFIX + "/skills", operation_id="SK-01")
+def list_skills(ctx=D):
+    return c.envelope({"items": [skills.public(value) for value in skills.catalog().values()]})
+
+
+@app.get(PREFIX + "/mcp/servers", operation_id="MC-01")
+def list_mcp(ctx=D):
+    return c.envelope({"items": [mcp_tools.descriptor(k, v) for k, v in settings().mcp_servers().items()]})
+
+
+@app.post(PREFIX + "/mcp/servers/{server_id}/check", operation_id="MC-02")
+async def check_mcp(server_id: str, request: Request):
+    with db.engine.begin() as conn:
+        c.authenticate(conn, request)
+    servers = settings().mcp_servers()
+    if server_id not in servers:
+        raise c.Problem("RESOURCE_NOT_FOUND", "MCP 服务不存在", 404)
+    return c.envelope(await mcp_tools.check(server_id, servers[server_id]))
+
+
+def owned_mcp(request, agent_id):
+    with db.engine.begin() as conn:
+        user, _ = c.authenticate(conn, request)
+        agent = c.require(db.one(conn, db.agents, agent_id, user["id"]))
+        return mcp_tools.selected(agent["mcp_server_ids"])
+
+
+@app.get(PREFIX + "/agents/{agent_id}/mcp/tools", operation_id="MC-03")
+async def list_mcp_tools(agent_id: UUID, request: Request):
+    servers = owned_mcp(request, agent_id)
+    items = []
+    try:
+        for ident, server in servers.items():
+            async with mcp_tools.connect(server) as session:
+                items.extend(await mcp_tools.discover(session, ident, server))
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        raise c.Problem("MCP_UNAVAILABLE", "MCP 工具目录暂时不可用", 503) from None
+    return c.envelope({"items": items})
+
+
+@app.post(PREFIX + "/agents/{agent_id}/mcp/tools/call", operation_id="MC-04")
+async def call_mcp_tool(agent_id: UUID, body: s.MCPCall, request: Request):
+    servers = owned_mcp(request, agent_id)
+    if body.server_id not in servers or body.tool_name not in servers[body.server_id]["allowed_tools"]:
+        raise c.Problem("MCP_TOOL_FORBIDDEN", "此智能体未启用该工具", 403)
+    server = servers[body.server_id]
+    try:
+        async with mcp_tools.connect(server) as session:
+            tools = await mcp_tools.discover(session, body.server_id, server)
+            tool = next((t for t in tools if t["name"] == body.tool_name), None)
+            if tool is None:
+                raise c.Problem("MCP_UNAVAILABLE", "工具不在当前目录中", 503)
+            result = await mcp_tools.invoke(session, server, tool, body.arguments)
+    except (asyncio.CancelledError, c.Problem):
+        raise
+    except Exception:
+        raise c.Problem("MCP_UNAVAILABLE", "MCP 工具暂时不可用", 503) from None
+    return c.envelope(result)
+
+
+def capability_selections(data, defaults=False):
+    catalogs = {"mcp_server_ids": settings().mcp_servers(), "skill_ids": skills.catalog()}
+    for field, catalog in catalogs.items():
+        if field not in data:
+            continue
+        ids = data[field]
+        if ids is None and defaults:
+            ids = [k for k, v in catalog.items() if v.get("default_enabled") and v.get("enabled", True)]
+        if ids is None or len(set(ids)) != len(ids):
+            raise c.Problem("VALIDATION_ERROR", "MCP 和技能选择不能为空值或重复", 422)
+        if any(ident not in catalog or not catalog[ident].get("enabled", True) for ident in ids):
+            raise c.Problem("CAPABILITY_UNAVAILABLE", "所选 MCP 或技能不在后台开放目录中", 422)
+        data[field] = ids
+    return data
 
 
 def bind_libraries(conn, agent, user, ids):
@@ -269,12 +347,13 @@ def bind_libraries(conn, agent, user, ids):
 def create_agent(body: s.AgentCreate, ctx=D):
     conn, user, _ = ctx
     config = c.model_config()
+    data = capability_selections(body.model_dump(exclude={"knowledge_base_ids"}), defaults=True)
     row = db.insert(
         conn,
         db.agents,
         owner_id=user["id"],
         model_id=config["model_id"],
-        **body.model_dump(exclude={"knowledge_base_ids"}),
+        **data,
     )
     bind_libraries(conn, row["id"], user["id"], body.knowledge_base_ids)
     return c.envelope(c.agent(conn, row), 201)
@@ -287,7 +366,7 @@ def update_agent(agent_id: UUID, body: s.AgentPatch, ctx=D):
         for ident in sorted(body.knowledge_base_ids):
             c.require(db.one(conn, db.knowledge_bases, ident, user["id"], lock=True))
     row = c.require(db.one(conn, db.agents, agent_id, user["id"], lock=True))
-    data = body.model_dump(exclude_unset=True)
+    data = capability_selections(body.model_dump(exclude_unset=True))
     if "model_id" in data:
         c.model_config(data["model_id"])
     if "knowledge_base_ids" in data:
@@ -451,9 +530,16 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
     ).first():
         raise c.Problem("CONVERSATION_BUSY", "此对话正在处理请求，请等待或停止当前任务", 409)
     config = c.agent_config(conn, agent)
+    skill = None
+    if body.skill_id:
+        skill = skills.catalog().get(body.skill_id)
+        if not skill or body.skill_id not in agent["skill_ids"]:
+            raise c.Problem("SKILL_UNAVAILABLE", "此技能已不可用或尚未在智能体中开启", 409)
+        config["skill"] = skill
     from .providers import input_estimate
 
-    if input_estimate(body.content_text) > config["input_token_budget"]:
+    initial_tokens = input_estimate(body.content_text) + input_estimate(skill["body"] if skill else "")
+    if initial_tokens > config["input_token_budget"]:
         raise c.Problem("CONTEXT_LIMIT_EXCEEDED", "当前输入超过模型容量，请缩短内容或新建对话", 409)
     target = None
     if body.target_plan_id:
@@ -504,6 +590,7 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
             role="user",
             origin="answer_request" if answer else "user_input",
             content_text=body.content_text,
+            skill={k: skill[k] for k in ("id", "name", "description")} if skill else None,
             answer_exercise_id=answer["id"] if answer else None,
         )
         seq += 1
@@ -522,6 +609,7 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
             db.update(conn, db.attachments, a["id"], state="bound", expires_at=None)
     inp = {
         "content_text": body.content_text,
+        "skill_id": body.skill_id,
         "attachment_ids": [str(x) for x in body.attachment_ids],
         "answer_exercise_id": str(answer["id"])
         if answer
@@ -619,6 +707,7 @@ def retry(message_id: UUID, body: s.Retry, request: Request, ctx=D):
                 raise c.Problem("PLAN_VERSION_CONFLICT", "请先查看最新计划并确认版本", 409)
         message = s.Send(
             content_text=inp["content_text"],
+            skill_id=inp.get("skill_id"),
             attachment_ids=inp["attachment_ids"],
             target_plan_id=target_id,
             expected_plan_version=version,

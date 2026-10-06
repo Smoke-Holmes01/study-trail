@@ -72,6 +72,8 @@ agents = table(
     col("system_prompt"),
     col("model_id", sa.String(200)),
     col("config_version", sa.Integer, default=1),
+    col("mcp_server_ids", JSONB, default=list),
+    col("skill_ids", JSONB, default=list),
 )
 knowledge_bases = table("knowledge_bases", col("name", sa.String(50)))
 agent_knowledge_bases = sa.Table(
@@ -103,6 +105,7 @@ messages = table(
     col("role", sa.String(16)),
     col("origin", sa.String(20)),
     col("content_text", default=""),
+    col("skill", JSONB, nullable=True),
     col("user_message_id", UUID(as_uuid=True), nullable=True, fk="messages.id", delete="CASCADE"),
     col("task_id", UUID(as_uuid=True), nullable=True, fk="tasks.id", delete="SET NULL", unique=True),
     col("response_status", sa.String(16), nullable=True),

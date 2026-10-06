@@ -1,0 +1,39 @@
+{
+  "default_model_id": "gemini-3.7-flash-high",
+  "providers": {
+    "generation": {
+      "base_url": "{env:GENERATION_BASE_URL}",
+      "api_key": "{env:GENERATION_API_KEY}"
+    }
+  },
+  "models": {
+    "gemini-3.7-flash-high": {
+      "provider_id": "generation",
+      "api_model_id": "gemini-3.7-flash-high",
+      "display_name": "Gemini 3.7 Flash High",
+      "enabled": true,
+      "supports_images": true,
+      "input_token_budget": 32768,
+      "max_output_tokens": 4096,
+      "max_images": 6,
+      "max_image_bytes": 62914560,
+      "json_object": true,
+      "verified_at": "2026-10-05",
+      "budget_basis": "conservative tested operating limit"
+    },
+    "gemini-3.8-flash-high": {
+      "provider_id": "generation",
+      "api_model_id": "gemini-3.8-flash-high",
+      "display_name": "Gemini 3.8 Flash High",
+      "enabled": true,
+      "supports_images": true,
+      "input_token_budget": 32768,
+      "max_output_tokens": 4096,
+      "max_images": 6,
+      "max_image_bytes": 62914560,
+      "json_object": true,
+      "verified_at": "2026-10-05",
+      "budget_basis": "conservative tested operating limit"
+    }
+  }
+}

@@ -3,6 +3,7 @@
 !/.gitignore
 !/.gitattributes
 !/src/
+!/config/
 
 # Retain application source and the configuration needed to build and run it.
 /src/*

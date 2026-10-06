@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "exa": {
+      "name": "Exa 网络搜索",
+      "description": "查询网络学习资料，为回答提供可核对的来源。",
+      "transport": "streamable_http",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa",
+      "headers": { "x-api-key": "{env:EXA_API_KEY}" },
+      "allowed_tools": ["web_search_exa"],
+      "enabled": true,
+      "default_enabled": true,
+      "timeout_seconds": 30
+    }
+  }
+}

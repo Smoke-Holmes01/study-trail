@@ -101,18 +101,22 @@ def store_bytes(data):
 
 
 def model_config(ident=None):
-    ident = ident or settings().default_model_id
+    ident = ident or settings().default_model()
     model = settings().models().get(ident)
     if not model or not model.get("enabled"):
         raise Problem("MODEL_UNAVAILABLE", "当前模型尚不可用，请稍后再试", 503)
-    return {"model_id": ident, **model}
+    provider = model.get("provider") or settings().model_catalog().providers["generation"].model_dump()
+    return {"model_id": ident, **model, "provider": provider}
 
 
 def agent_config(conn, agent):
+    from .mcp_tools import selected
+
     return {
         **model_config(agent["model_id"]),
         "system_prompt": agent["system_prompt"],
         "config_version": agent["config_version"],
+        "mcp_servers": selected(agent["mcp_server_ids"]),
         "knowledge_base_ids": [
             str(x)
             for x in conn.execute(
@@ -270,6 +274,7 @@ def message(conn, row):
         "role",
         "origin",
         "content_text",
+        "skill",
         "response_status",
         "user_message_id",
         "task_id",
@@ -323,6 +328,8 @@ def agent(conn, row):
         "system_prompt",
         "model_id",
         "config_version",
+        "mcp_server_ids",
+        "skill_ids",
         "created_at",
         "updated_at",
     )
@@ -442,7 +449,7 @@ def task(conn, row):
             }
         out["request_input"] = {
             k: inp.get(k, [] if k == "attachment_ids" else None)
-            for k in ["content_text", "attachment_ids", "answer_exercise_id"]
+            for k in ["content_text", "attachment_ids", "answer_exercise_id", "skill_id"]
         }
         out["request_input"]["target_plan"] = target
     return out

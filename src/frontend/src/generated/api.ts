@@ -124,6 +124,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Skills */
+        get: operations["SK-01"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Mcp */
+        get: operations["MC-01"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/servers/{server_id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Mcp */
+        post: operations["MC-02"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/mcp/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Mcp Tools */
+        get: operations["MC-03"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/mcp/tools/call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Call Mcp Tool */
+        post: operations["MC-04"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -699,6 +784,10 @@ export interface components {
             system_prompt: string;
             /** Knowledge Base Ids */
             knowledge_base_ids?: string[];
+            /** Mcp Server Ids */
+            mcp_server_ids?: string[] | null;
+            /** Skill Ids */
+            skill_ids?: string[] | null;
         };
         /** AgentPatch */
         AgentPatch: {
@@ -712,6 +801,10 @@ export interface components {
             knowledge_base_ids?: string[] | null;
             /** Model Id */
             model_id?: string | null;
+            /** Mcp Server Ids */
+            mcp_server_ids?: string[] | null;
+            /** Skill Ids */
+            skill_ids?: string[] | null;
         };
         /** Body_F-02 */
         "Body_F-02": {
@@ -744,6 +837,17 @@ export interface components {
             login: string;
             /** Password */
             password: string;
+        };
+        /** MCPCall */
+        MCPCall: {
+            /** Server Id */
+            server_id: string;
+            /** Tool Name */
+            tool_name: string;
+            /** Arguments */
+            arguments?: {
+                [key: string]: unknown;
+            };
         };
         /** MePatch */
         MePatch: {
@@ -812,6 +916,8 @@ export interface components {
              * @default
              */
             content_text: string;
+            /** Skill Id */
+            skill_id?: string | null;
             /** Attachment Ids */
             attachment_ids?: string[];
             /** Target Plan Id */
@@ -849,6 +955,10 @@ export interface components {
             model_id: string;
             /** Config Version */
             config_version: number;
+            /** Mcp Server Ids */
+            mcp_server_ids: string[];
+            /** Skill Ids */
+            skill_ids: string[];
             /** Knowledge Base Ids */
             knowledge_base_ids: string[];
             /** Latest Conversation Id */
@@ -1082,6 +1192,76 @@ export interface components {
              */
             expires_at: string;
         };
+        /** MCPResultDTO */
+        MCPResultDTO: {
+            /** Content */
+            content: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Structuredcontent
+             * @default null
+             */
+            structuredContent: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Iserror
+             * @default null
+             */
+            isError: boolean | null;
+        };
+        /** MCPServerDTO */
+        MCPServerDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable_http";
+            /** Enabled */
+            enabled: boolean;
+            /** Default Enabled */
+            default_enabled: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unknown" | "disabled" | "connected" | "unavailable";
+            /**
+             * Tool Count
+             * @default null
+             */
+            tool_count: number | null;
+        };
+        /** MCPServersDTO */
+        MCPServersDTO: {
+            /** Items */
+            items: components["schemas"]["MCPServerDTO"][];
+        };
+        /** MCPToolDTO */
+        MCPToolDTO: {
+            /** Server Id */
+            server_id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Input Schema */
+            input_schema: {
+                [key: string]: unknown;
+            };
+        };
+        /** MCPToolsDTO */
+        MCPToolsDTO: {
+            /** Items */
+            items: components["schemas"]["MCPToolDTO"][];
+        };
         /** MessageDTO */
         MessageDTO: {
             /**
@@ -1105,6 +1285,7 @@ export interface components {
             origin: string;
             /** Content Text */
             content_text: string;
+            skill: components["schemas"]["SkillLabelDTO"] | null;
             /** Response Status */
             response_status: string | null;
             /** User Message Id */
@@ -1324,11 +1505,38 @@ export interface components {
         RequestInputDTO: {
             /** Content Text */
             content_text: string;
+            /** Skill Id */
+            skill_id: string | null;
             /** Attachment Ids */
             attachment_ids: string[];
             /** Answer Exercise Id */
             answer_exercise_id: string | null;
             target_plan: components["schemas"]["TargetDTO"] | null;
+        };
+        /** SkillDTO */
+        SkillDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Default Enabled */
+            default_enabled: boolean;
+        };
+        /** SkillLabelDTO */
+        SkillLabelDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+        };
+        /** SkillsDTO */
+        SkillsDTO: {
+            /** Items */
+            items: components["schemas"]["SkillDTO"][];
         };
         /** SourceDTO */
         SourceDTO: {
@@ -1490,6 +1698,42 @@ export interface components {
              */
             request_id: string;
         };
+        /** Success[MCPResultDTO] */
+        Success_MCPResultDTO_: {
+            data: components["schemas"]["MCPResultDTO"];
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** Success[MCPServerDTO] */
+        Success_MCPServerDTO_: {
+            data: components["schemas"]["MCPServerDTO"];
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** Success[MCPServersDTO] */
+        Success_MCPServersDTO_: {
+            data: components["schemas"]["MCPServersDTO"];
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** Success[MCPToolsDTO] */
+        Success_MCPToolsDTO_: {
+            data: components["schemas"]["MCPToolsDTO"];
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
         /** Success[ModelsDTO] */
         Success_ModelsDTO_: {
             data: components["schemas"]["ModelsDTO"];
@@ -1565,6 +1809,15 @@ export interface components {
         /** Success[PreviewDTO] */
         Success_PreviewDTO_: {
             data: components["schemas"]["PreviewDTO"];
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** Success[SkillsDTO] */
+        Success_SkillsDTO_: {
+            data: components["schemas"]["SkillsDTO"];
             /**
              * Request Id
              * Format: uuid
@@ -2341,6 +2594,431 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Success_ModelsDTO_"];
+                };
+            };
+            /** @description 业务错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    "SK-01": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Success_SkillsDTO_"];
+                };
+            };
+            /** @description 业务错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    "MC-01": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Success_MCPServersDTO_"];
+                };
+            };
+            /** @description 业务错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    "MC-02": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Success_MCPServerDTO_"];
+                };
+            };
+            /** @description 业务错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    "MC-03": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Success_MCPToolsDTO_"];
+                };
+            };
+            /** @description 业务错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    "MC-04": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPCall"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Success_MCPResultDTO_"];
                 };
             };
             /** @description 业务错误 */

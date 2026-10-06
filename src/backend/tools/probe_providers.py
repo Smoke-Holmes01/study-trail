@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
@@ -22,15 +23,16 @@ async def main():
     Image.new("RGB", (64, 64), "red").save(image, "PNG")
     image_url = "data:image/png;base64," + base64.b64encode(image.getvalue()).decode()
     async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
-        for ident in ["gemini-3.7-flash-high", "gemini-3.8-flash-high"]:
+        for ident, model in cfg.models().items():
             checks = {}
-            headers = {"Authorization": f"Bearer {cfg.generation_api_key}"}
+            url = cfg.resolve(model["provider"]["base_url"]).rstrip("/")
+            headers = {"Authorization": "Bearer " + cfg.resolve(model["provider"]["api_key"])}
 
             async def complete(messages, **options):
                 response = await client.post(
-                    cfg.generation_base_url + "/chat/completions",
+                    url + "/chat/completions",
                     headers=headers,
-                    json={"model": ident, "messages": messages, "max_tokens": 256, **options},
+                    json={"model": model["api_model_id"], "messages": messages, "max_tokens": 256, **options},
                 )
                 response.raise_for_status()
                 return response.json()
@@ -43,10 +45,10 @@ async def main():
                 buf = ""
                 async with client.stream(
                     "POST",
-                    cfg.generation_base_url + "/chat/completions",
+                    url + "/chat/completions",
                     headers=headers,
                     json={
-                        "model": ident,
+                        "model": model["api_model_id"],
                         "messages": [{"role": "user", "content": "请用一句话解释余弦相似度。"}],
                         "stream": True,
                         "max_tokens": 256,
@@ -106,7 +108,7 @@ async def main():
                     "max_images": 6 if checks["images"] else 0,
                     "max_image_bytes": 62914560 if checks["images"] else 0,
                     "json_object": checks["json_object"],
-                    "verified_at": "2026-10-05",
+                    "verified_at": datetime.now(timezone(timedelta(hours=8))).date().isoformat(),
                     "budget_basis": "conservative tested operating limit",
                 }
                 print(ident, "budget", input_budget, "json", checks["json_object"], flush=True)
@@ -157,10 +159,13 @@ async def main():
                 if isinstance(exc, httpx.HTTPStatusError):
                     report[name]["http_status"] = exc.response.status_code
             print(name, report[name], flush=True)
-    cfg.model_capabilities_file.parent.mkdir(parents=True, exist_ok=True)
-    cfg.model_capabilities_file.write_text(
-        json.dumps(capabilities, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    catalog = cfg.read_config("model.json")
+    for ident, evidence in capabilities.items():
+        catalog["models"][ident].update(evidence)
+    target_config = cfg.config_root / "model.json"
+    temporary = target_config.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target_config)
     target = Path(__file__).parents[2] / "docs/provider-probes.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

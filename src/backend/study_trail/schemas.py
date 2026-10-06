@@ -65,6 +65,8 @@ class AgentCreate(Name):
     description: str = Field(default="", max_length=500)
     system_prompt: str = Field(min_length=1, max_length=10000)
     knowledge_base_ids: list[UUID] = Field(default_factory=list)
+    mcp_server_ids: list[str] | None = Field(default=None, max_length=100)
+    skill_ids: list[str] | None = Field(default=None, max_length=100)
 
     @field_validator("system_prompt", mode="before")
     @classmethod
@@ -85,6 +87,8 @@ class AgentPatch(Input):
     system_prompt: str | None = Field(default=None, min_length=1, max_length=10000)
     knowledge_base_ids: list[UUID] | None = None
     model_id: str | None = None
+    mcp_server_ids: list[str] | None = Field(default=None, max_length=100)
+    skill_ids: list[str] | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def validate_patch(self):
@@ -125,6 +129,7 @@ class Empty(Input):
 
 class Send(Input):
     content_text: str = ""
+    skill_id: str | None = Field(default=None, min_length=1, max_length=64)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=6)
     target_plan_id: UUID | None = None
     expected_plan_version: int | None = Field(default=None, ge=1)
@@ -143,6 +148,12 @@ class Send(Input):
 class Retry(Input):
     previous_task_id: UUID
     expected_plan_version: int | None = Field(default=None, ge=1)
+
+
+class MCPCall(Input):
+    server_id: str = Field(min_length=1, max_length=64)
+    tool_name: str = Field(min_length=1, max_length=200)
+    arguments: dict = Field(default_factory=dict)
 
 
 class Prompt(Input):

@@ -51,6 +51,52 @@ class ModelsDTO(BaseModel):
     default_model_id: str
 
 
+class SkillLabelDTO(BaseModel):
+    id: str
+    name: str
+    description: str
+
+
+class SkillDTO(SkillLabelDTO):
+    default_enabled: bool
+
+
+class SkillsDTO(BaseModel):
+    items: list[SkillDTO]
+
+
+class MCPServerDTO(BaseModel):
+    id: str
+    name: str
+    description: str
+    transport: Literal["stdio", "streamable_http"]
+    enabled: bool
+    default_enabled: bool
+    status: Literal["unknown", "disabled", "connected", "unavailable"]
+    tool_count: int | None = None
+
+
+class MCPServersDTO(BaseModel):
+    items: list[MCPServerDTO]
+
+
+class MCPToolDTO(BaseModel):
+    server_id: str
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+
+class MCPToolsDTO(BaseModel):
+    items: list[MCPToolDTO]
+
+
+class MCPResultDTO(BaseModel):
+    content: list[dict[str, Any]]
+    structuredContent: dict[str, Any] | None = None
+    isError: bool | None = None
+
+
 class AgentDTO(BaseModel):
     id: UUID
     name: str
@@ -58,6 +104,8 @@ class AgentDTO(BaseModel):
     system_prompt: str
     model_id: str
     config_version: int
+    mcp_server_ids: list[str]
+    skill_ids: list[str]
     knowledge_base_ids: list[UUID]
     latest_conversation_id: UUID | None
     created_at: datetime
@@ -114,6 +162,7 @@ class MessageDTO(BaseModel):
     role: Literal["user", "assistant"]
     origin: str
     content_text: str
+    skill: SkillLabelDTO | None
     response_status: str | None
     user_message_id: UUID | None
     task_id: UUID | None
@@ -169,6 +218,7 @@ class TargetDTO(BaseModel):
 
 class RequestInputDTO(BaseModel):
     content_text: str
+    skill_id: str | None
     attachment_ids: list[UUID]
     answer_exercise_id: UUID | None
     target_plan: TargetDTO | None

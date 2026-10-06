@@ -59,6 +59,9 @@ import {
   type Exercise,
 } from "../lib/api";
 import Modal from "../components/Modal.vue";
+import AgentCapabilities from "../components/AgentCapabilities.vue";
+import SkillPicker from "../components/SkillPicker.vue";
+import type { Skill, MCPServer } from "../lib/api";
 import Markdown from "../components/Markdown.vue";
 import { renderMarkdownDocument } from "../lib/markdown";
 const route = useRoute();
@@ -70,6 +73,8 @@ const agentExpanded = ref(true);
 const agents = ref<Agent[]>([]);
 const libraries = ref<KnowledgeBase[]>([]);
 const models = ref<ModelOption[]>([]);
+const skills = ref<Skill[]>([]);
+const mcpServers = ref<MCPServer[]>([]);
 const agentId = ref("");
 const conversationId = ref("");
 const libraryId = ref("");
@@ -102,6 +107,48 @@ let toastTimer: ReturnType<typeof setTimeout>;
 const drafts = useDrafts().forOwner(session.user!.id);
 const emptyDraft = reactive<Draft>({ text: "", images: [] });
 const draft = computed(() => drafts.get(conversationId.value) ?? emptyDraft);
+const skillPicker = ref<InstanceType<typeof SkillPicker>>();
+const slashDismissed = ref(false);
+const slashQuery = computed(() => /^\/([^\s]*)/.exec(draft.value.text)?.[1]);
+const slashVisible = computed(
+  () =>
+    slashQuery.value !== undefined &&
+    !slashDismissed.value &&
+    !generating.value &&
+    !busy.value,
+);
+const enabledSkills = computed(() =>
+  skills.value.filter((s) => selectedAgent.value?.skill_ids.includes(s.id)),
+);
+const selectedSkill = computed(() =>
+  skills.value.find((s) => s.id === draft.value.skill_id),
+);
+const skillUnavailable = computed(
+  () =>
+    !!draft.value.skill_id &&
+    !enabledSkills.value.some((s) => s.id === draft.value.skill_id),
+);
+function selectSkill(skill: Skill) {
+  draft.value.skill_id = skill.id;
+  draft.value.text = draft.value.text.replace(/^\/[^\s]*\s?/, "");
+  slashDismissed.value = true;
+  composer.value?.focus();
+}
+watch(
+  () => draft.value.text,
+  () => {
+    slashDismissed.value = false;
+  },
+);
+watch(conversationId, () => {
+  slashDismissed.value = false;
+});
+watch(slashVisible, async (visible) => {
+  if (visible)
+    await guard(async () => {
+      skills.value = (await api<{ items: Skill[] }>("/skills")).items;
+    });
+});
 const target = ref<{
   id: string;
   name: string;
@@ -124,6 +171,7 @@ const canSend = computed(
     !busy.value &&
     modelAvailable.value &&
     !modelIncompatible.value &&
+    !skillUnavailable.value &&
     !target.value?.deleted &&
     (draft.value.text.trim() || draft.value.images.length),
 );
@@ -164,13 +212,24 @@ const modalTitle = computed(
       "": "",
     })[modal.value],
 );
-const wizardStep = ref(1);
+const agentTab = ref<"basic" | "prompt" | "knowledge" | "mcp" | "skills">(
+  "basic",
+);
+const agentTabs = [
+  { id: "basic", label: "基础信息" },
+  { id: "prompt", label: "系统提示词" },
+  { id: "knowledge", label: "知识库" },
+  { id: "mcp", label: "MCP" },
+  { id: "skills", label: "技能" },
+] as const;
 const editingAgent = ref<Agent | null>(null);
 const agentForm = reactive({
   name: "",
   description: "",
   system_prompt: "",
   knowledge_base_ids: [] as string[],
+  mcp_server_ids: [] as string[],
+  skill_ids: [] as string[],
 });
 const promptTask = ref<Task | null>(null);
 const promptCandidate = computed(
@@ -237,11 +296,15 @@ async function loadResources() {
     all<Agent>("/agents"),
     all<KnowledgeBase>("/knowledge-bases"),
     api<{ items: ModelOption[] }>("/models"),
+    api<{ items: Skill[] }>("/skills"),
+    api<{ items: MCPServer[] }>("/mcp/servers"),
   ]);
   if (revision !== resourceLoadRevision) return;
   agents.value = result[0];
   libraries.value = result[1];
   models.value = result[2].items;
+  skills.value = result[3].items;
+  mcpServers.value = result[4].items;
 }
 async function refreshMessages() {
   if (!conversationId.value) {
@@ -391,6 +454,7 @@ function applyTask(snapshot: Task, id: string) {
     d.submittedTaskId === snapshot.id
   ) {
     d.text = "";
+    delete d.skill_id;
     d.images = [];
     delete d.submittedTaskId;
     const change = snapshot.result.plan_mutation;
@@ -429,6 +493,7 @@ function attachTask(snapshot: Task, id: string, restore = false) {
   if (restore && snapshot.request_input) {
     const d = drafts.get(id)!;
     d.text = snapshot.request_input.content_text;
+    d.skill_id = snapshot.request_input.skill_id ?? undefined;
     d.submittedTaskId = snapshot.id;
     const user = messages.value.find((m) => m.id === snapshot.user_message_id);
     d.images = (user?.attachments ?? []).map((attachment) => ({ attachment }));
@@ -522,6 +587,7 @@ async function send() {
   try {
     const currentBody = (): SendBody => ({
       content_text: sendingDraft.text,
+      skill_id: sendingDraft.skill_id ?? null,
       attachment_ids: sendingDraft.images.map((x) => x.attachment.id),
       target_plan_id: sendingTarget?.id ?? null,
       expected_plan_version: sendingTarget?.version ?? null,
@@ -591,6 +657,7 @@ async function send() {
   }
 }
 function keydown(event: KeyboardEvent) {
+  if (slashVisible.value && skillPicker.value?.handleKey(event)) return;
   if (
     event.key === "Enter" &&
     !event.shiftKey &&
@@ -669,9 +736,20 @@ async function startFeedback(exercise: Exercise, index: number) {
   await nextTick();
   composer.value?.focus();
 }
-function openAgentForm(agent?: Agent) {
+async function openAgentForm(agent?: Agent) {
+  try {
+    const result = await Promise.all([
+      api<{ items: Skill[] }>("/skills"),
+      api<{ items: MCPServer[] }>("/mcp/servers"),
+    ]);
+    skills.value = result[0].items;
+    mcpServers.value = result[1].items;
+  } catch (e) {
+    notify(errorMessage(e), true);
+    return;
+  }
   editingAgent.value = agent ?? null;
-  wizardStep.value = 1;
+  agentTab.value = "basic";
   modalError.value = "";
   promptTask.value = null;
   Object.assign(agentForm, {
@@ -679,22 +757,30 @@ function openAgentForm(agent?: Agent) {
     description: agent?.description ?? "",
     system_prompt: agent?.system_prompt ?? "",
     knowledge_base_ids: [...(agent?.knowledge_base_ids ?? [])],
+    mcp_server_ids: [
+      ...(agent?.mcp_server_ids ??
+        mcpServers.value
+          .filter((s) => s.enabled && s.default_enabled)
+          .map((s) => s.id)),
+    ],
+    skill_ids: [
+      ...(agent?.skill_ids ??
+        skills.value.filter((s) => s.default_enabled).map((s) => s.id)),
+    ],
   });
   modal.value = "agent";
 }
-function nextStep() {
-  modalError.value = "";
-  if (wizardStep.value === 1 && !agentForm.name.trim()) {
+async function saveAgent() {
+  if (!agentForm.name.trim()) {
+    agentTab.value = "basic";
     modalError.value = "请填写智能体名称。";
     return;
   }
-  if (wizardStep.value === 2 && !agentForm.system_prompt.trim()) {
+  if (!agentForm.system_prompt.trim()) {
+    agentTab.value = "prompt";
     modalError.value = "请填写或采用系统提示词。";
     return;
   }
-  wizardStep.value++;
-}
-async function saveAgent() {
   saving.value = true;
   modalError.value = "";
   try {
@@ -1597,6 +1683,9 @@ onBeforeUnmount(() => {
                 >
               </div>
               <div class="message-content">
+                <span v-if="message.skill" class="skill-label"
+                  >/{{ message.skill.name }}</span
+                >
                 <div v-if="message.attachments.length" class="message-images">
                   <button
                     v-for="(image, i) in message.attachments"
@@ -1775,6 +1864,17 @@ onBeforeUnmount(() => {
             </article>
           </div>
           <div class="composer-region">
+            <SkillPicker
+              v-if="slashVisible"
+              ref="skillPicker"
+              :skills="enabledSkills"
+              :query="slashQuery ?? ''"
+              @select="selectSkill"
+              @close="slashDismissed = true"
+            />
+            <p v-if="skillUnavailable" class="warning-box compact">
+              所选技能已不可用或未开启，请移除技能标签或调整智能体设置。
+            </p>
             <div v-if="!connected && generating" class="warning-box compact">
               连接中断，后台状态待确认；正在重新连接。
             </div>
@@ -1801,6 +1901,17 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <div class="composer" :class="{ disabled: generating }">
+              <div v-if="draft.skill_id" class="selected-skill">
+                <span>/{{ selectedSkill?.name ?? draft.skill_id }}</span>
+                <button
+                  type="button"
+                  :disabled="!!generating || busy"
+                  aria-label="移除所选技能"
+                  @click="delete draft.skill_id"
+                >
+                  <X :size="14" />
+                </button>
+              </div>
               <div v-if="draft.images.length" class="draft-images">
                 <div
                   v-for="(item, i) in draft.images"
@@ -1833,9 +1944,16 @@ onBeforeUnmount(() => {
                 ref="composer"
                 v-model="draft.text"
                 aria-label="输入学习问题"
+                :aria-controls="slashVisible ? 'skill-options' : undefined"
+                :aria-expanded="slashVisible"
+                :aria-activedescendant="
+                  slashVisible ? skillPicker?.activeId : undefined
+                "
                 :readonly="!!generating || busy"
                 :disabled="!conversationId"
-                placeholder="输入问题、学习目标，或上传图片…"
+                placeholder="输入问题、学习目标，或输入 / 选择技能…"
+                @focus="slashDismissed = false"
+                @blur="slashDismissed = true"
                 @keydown="keydown"
               />
               <div class="composer-tools">
@@ -2088,130 +2206,174 @@ onBeforeUnmount(() => {
   <Modal
     :open="!!modal"
     :title="modalTitle"
-    :wide="['plans', 'preview', 'image'].includes(modal)"
+    :wide="['agent', 'plans', 'preview', 'image'].includes(modal)"
     @close="closeModal"
   >
-    <template v-if="modal === 'agent'"
-      ><div v-if="!editingAgent" class="wizard-steps">
-        <span
-          v-for="(label, i) in ['基础信息', '系统提示词', '关联知识库']"
-          :key="label"
-          :class="{ current: wizardStep === i + 1, done: wizardStep > i + 1 }"
-          ><i>{{ i + 1 }}</i
-          >{{ label }}</span
-        >
-      </div>
-      <form
-        id="agent-form"
-        @submit.prevent="
-          editingAgent || wizardStep === 3 ? saveAgent() : nextStep()
-        "
-      >
-        <section v-if="editingAgent || wizardStep === 1">
-          <p class="muted">为学习伙伴取个名字，告诉它想帮助你做什么。</p>
-          <label
-            >智能体名称<input
-              v-model="agentForm.name"
-              required
-              maxlength="50"
-              placeholder="例如：线性代数学习伙伴" /></label
-          ><label
-            >描述 <span class="muted">可选</span
-            ><textarea
-              v-model="agentForm.description"
-              maxlength="500"
-              placeholder="你的学习方向与辅导需求"
-            />
-          </label>
-        </section>
-        <section v-if="editingAgent || wizardStep === 2">
-          <label
-            >系统提示词<textarea
-              v-model="agentForm.system_prompt"
-              class="prompt-input"
-              required
-              maxlength="10000"
-              placeholder="描述辅导角色、讲解方式与边界，也可以让 AI 帮你生成。"
-            />
-          </label>
-          <div class="inline-actions">
-            <button
-              type="button"
-              :disabled="!!promptBusy"
-              @click="generatePrompt('generate')"
-            >
-              <Sparkles :size="16" />AI 生成</button
-            ><button
-              type="button"
-              :disabled="!!promptBusy || !agentForm.system_prompt.trim()"
-              @click="generatePrompt('polish')"
-            >
-              润色提示词</button
-            ><button
-              v-if="promptBusy"
-              type="button"
-              @click="
-                guard(async () => {
-                  if (promptTask)
-                    promptTask = await mutation<Task>(
-                      '/tasks/' + promptTask.id + '/stop',
-                    );
-                })
-              "
-            >
-              停止
-            </button>
-          </div>
-          <div v-if="promptTask" class="prompt-result">
-            <div class="section-label">
-              {{ promptBusy ? promptTask.progress.label : "AI 候选提示词" }}
+    <template v-if="modal === 'agent'">
+      <div class="agent-editor">
+        <nav class="agent-tabs" role="tablist" aria-label="智能体设置">
+          <button
+            v-for="tab in agentTabs"
+            :id="'agent-tab-' + tab.id"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            :aria-selected="agentTab === tab.id"
+            :aria-controls="'agent-panel-' + tab.id"
+            :class="{ active: agentTab === tab.id }"
+            @click="
+              agentTab = tab.id;
+              modalError = '';
+            "
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
+        <form id="agent-form" novalidate @submit.prevent="saveAgent">
+          <section
+            v-show="agentTab === 'basic'"
+            id="agent-panel-basic"
+            role="tabpanel"
+            aria-labelledby="agent-tab-basic"
+          >
+            <p class="muted">为学习伙伴取个名字，告诉它想帮助你做什么。</p>
+            <label
+              >智能体名称<input
+                v-model="agentForm.name"
+                required
+                maxlength="50"
+                placeholder="例如：线性代数学习伙伴" /></label
+            ><label
+              >描述 <span class="muted">可选</span
+              ><textarea
+                v-model="agentForm.description"
+                maxlength="500"
+                placeholder="你的学习方向与辅导需求"
+              />
+            </label>
+          </section>
+          <section
+            v-show="agentTab === 'prompt'"
+            id="agent-panel-prompt"
+            role="tabpanel"
+            aria-labelledby="agent-tab-prompt"
+          >
+            <label
+              >系统提示词<textarea
+                v-model="agentForm.system_prompt"
+                class="prompt-input"
+                required
+                maxlength="10000"
+                placeholder="描述辅导角色、讲解方式与边界，也可以让 AI 帮你生成。"
+              />
+            </label>
+            <div class="inline-actions">
+              <button
+                type="button"
+                :disabled="!!promptBusy"
+                @click="generatePrompt('generate')"
+              >
+                <Sparkles :size="16" />AI 生成</button
+              ><button
+                type="button"
+                :disabled="!!promptBusy || !agentForm.system_prompt.trim()"
+                @click="generatePrompt('polish')"
+              >
+                润色提示词</button
+              ><button
+                v-if="promptBusy"
+                type="button"
+                @click="
+                  guard(async () => {
+                    if (promptTask)
+                      promptTask = await mutation<Task>(
+                        '/tasks/' + promptTask.id + '/stop',
+                      );
+                  })
+                "
+              >
+                停止
+              </button>
             </div>
-            <pre>{{ promptCandidate }}</pre>
-            <p v-if="promptTask.error" class="error-box">
-              {{ promptTask.error.message }}
+            <div v-if="promptTask" class="prompt-result">
+              <div class="section-label">
+                {{ promptBusy ? promptTask.progress.label : "AI 候选提示词" }}
+              </div>
+              <pre>{{ promptCandidate }}</pre>
+              <p v-if="promptTask.error" class="error-box">
+                {{ promptTask.error.message }}
+              </p>
+              <button
+                v-if="promptTask.status === 'succeeded'"
+                type="button"
+                @click="
+                  agentForm.system_prompt = promptCandidate;
+                  promptTask = null;
+                "
+              >
+                采用结果</button
+              ><button
+                v-if="['failed', 'stopped'].includes(promptTask.status)"
+                type="button"
+                @click="guard(retryPrompt)"
+              >
+                重试
+              </button>
+              <p class="muted">采用结果只修改当前草稿；保存后才更新智能体。</p>
+            </div>
+          </section>
+          <section
+            v-show="agentTab === 'knowledge'"
+            id="agent-panel-knowledge"
+            role="tabpanel"
+            aria-labelledby="agent-tab-knowledge"
+          >
+            <p class="muted">
+              选择你的知识库，为答疑提供资料依据。也可以暂不关联。
             </p>
-            <button
-              v-if="promptTask.status === 'succeeded'"
-              type="button"
-              @click="
-                agentForm.system_prompt = promptCandidate;
-                promptTask = null;
-              "
-            >
-              采用结果</button
-            ><button
-              v-if="['failed', 'stopped'].includes(promptTask.status)"
-              type="button"
-              @click="guard(retryPrompt)"
-            >
-              重试
-            </button>
-            <p class="muted">采用结果只修改当前草稿；保存后才更新智能体。</p>
-          </div>
-        </section>
-        <section v-if="editingAgent || wizardStep === 3">
-          <p class="muted">
-            选择你的知识库，为答疑提供资料依据。也可以暂不关联。
-          </p>
-          <div class="library-checklist">
-            <label v-for="library in libraries" :key="library.id"
-              ><input
-                v-model="agentForm.knowledge_base_ids"
-                type="checkbox"
-                :value="library.id"
-              /><BookOpen :size="19" /><span
-                >{{ library.name
-                }}<small>{{ library.ready_file_count }} 个可用文件</small></span
-              ></label
-            >
-            <div v-if="!libraries.length" class="soft-panel">
-              <BookOpen :size="24" />
-              <p>还没有知识库。可以先创建智能体，之后再关联资料。</p>
+            <div class="library-checklist">
+              <label v-for="library in libraries" :key="library.id"
+                ><input
+                  v-model="agentForm.knowledge_base_ids"
+                  type="checkbox"
+                  :value="library.id"
+                /><BookOpen :size="19" /><span
+                  >{{ library.name
+                  }}<small
+                    >{{ library.ready_file_count }} 个可用文件</small
+                  ></span
+                ></label
+              >
+              <div v-if="!libraries.length" class="soft-panel">
+                <BookOpen :size="24" />
+                <p>还没有知识库。可以先创建智能体，之后再关联资料。</p>
+              </div>
             </div>
+          </section>
+          <div
+            v-if="agentTab === 'mcp' || agentTab === 'skills'"
+            :id="'agent-panel-' + agentTab"
+            role="tabpanel"
+            :aria-labelledby="'agent-tab-' + agentTab"
+          >
+            <AgentCapabilities
+              :tab="agentTab"
+              :servers="mcpServers"
+              :skills="skills"
+              v-model:mcp-ids="agentForm.mcp_server_ids"
+              v-model:skill-ids="agentForm.skill_ids"
+              @checked="
+                (server) => {
+                  mcpServers = mcpServers.map((s) =>
+                    s.id === server.id ? server : s,
+                  );
+                }
+              "
+            />
           </div>
-        </section>
-      </form></template
-    >
+        </form>
+      </div>
+    </template>
     <template v-else-if="modal === 'settings'"
       ><div class="tabs">
         <button
@@ -2520,23 +2682,13 @@ onBeforeUnmount(() => {
     <p v-if="modalError" role="alert" class="error-box">{{ modalError }}</p>
     <template #footer
       ><template v-if="modal === 'agent'"
-        ><button v-if="!editingAgent && wizardStep > 1" @click="wizardStep--">
-          上一步</button
         ><button @click="closeModal">取消</button
         ><button
           class="primary"
           form="agent-form"
           :disabled="saving || !!promptBusy"
         >
-          {{
-            saving
-              ? "保存中…"
-              : editingAgent
-                ? "保存修改"
-                : wizardStep === 3
-                  ? "创建智能体"
-                  : "下一步"
-          }}
+          {{ saving ? "保存中…" : editingAgent ? "保存修改" : "创建智能体" }}
         </button></template
       ><template v-else-if="modal === 'name'"
         ><button @click="closeModal">取消</button
