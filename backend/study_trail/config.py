@@ -142,9 +142,9 @@ class Settings(BaseSettings):
 
     def default_model(self):
         from . import db
-        from .platform import bound
+        from .platform import bound, model_readiness
         with db.engine.connect() as conn:
-            return bound(conn, "default_generation")[0]["stable_id"]
+            return bound(conn, "default_generation")[0]["stable_id"] if model_readiness(conn)["default_generation"] else None
 
     def file_default_model(self):
         return self.model_catalog().default_model_id

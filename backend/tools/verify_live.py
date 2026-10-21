@@ -25,7 +25,7 @@ async def main():
     if db.engine.url.database != "study_trail":
         raise RuntimeError("This verifier expects the upgraded local installation.")
     root = Path(__file__).parents[2]
-    output = root / "docs/verification-live-v0.0.2.json"
+    output = root / "docs/verification-live-v0.0.3.json"
     if output.exists():
         raise RuntimeError(
             "A live verification report already exists; do not repeat paid calls automatically."

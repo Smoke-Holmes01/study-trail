@@ -310,7 +310,7 @@ async function loadResources() {
   runtimeLimits.value = result[5];
 }
 
-interface RuntimeLimits { file_max_bytes: number; batch_max_files: number; image_max_bytes: number; message_max_images: number }
+interface RuntimeLimits { file_max_bytes: number; batch_max_files: number; image_max_bytes: number; message_max_images: number; model_readiness?: { default_generation: boolean; embedding: boolean; rerank: boolean } }
 const runtimeLimits = ref<RuntimeLimits>({ file_max_bytes: 52428800, batch_max_files: 10, image_max_bytes: 10485760, message_max_images: 6 });
 async function refreshLimits() { runtimeLimits.value = await api<RuntimeLimits>("/runtime-limits"); }
 function mib(bytes: number) { return Number((bytes / 1048576).toFixed(2)); }
@@ -488,6 +488,7 @@ function applyTask(snapshot: Task, id: string) {
     if (assistant) {
       assistant.content_text = snapshot.result.preview_text;
       assistant.response_status = snapshot.status;
+      assistant.execution_info = snapshot.result.execution_info ?? [];
     }
   }
 }
@@ -750,6 +751,13 @@ async function startFeedback(exercise: Exercise, index: number) {
   composer.value?.focus();
 }
 async function openAgentForm(agent?: Agent) {
+  if (!agent) {
+    try { await refreshLimits(); } catch(e) { notify(errorMessage(e), true); return; }
+    if (runtimeLimits.value.model_readiness?.default_generation === false) {
+      notify("平台尚未配置默认生成模型，请联系管理员。", true);
+      return;
+    }
+  }
   try {
     const result = await Promise.all([
       api<{ items: Skill[] }>("/skills"),
@@ -1125,6 +1133,10 @@ async function uploadDocuments(event: Event) {
   const chosen = Array.from((event.target as HTMLInputElement).files ?? []);
   (event.target as HTMLInputElement).value = "";
   if (!chosen.length) return;
+  if (runtimeLimits.value.model_readiness?.embedding === false) {
+    notify("平台尚未配置嵌入模型，暂不可上传文件。请联系管理员。", true);
+    return;
+  }
   if (chosen.length > runtimeLimits.value.batch_max_files) {
     notify(`每批最多上传 ${runtimeLimits.value.batch_max_files} 个文件。`, true);
     return;
@@ -1593,11 +1605,18 @@ onBeforeUnmount(() => {
         <button
           v-else-if="isKnowledge && selectedLibrary"
           class="primary"
+          :disabled="runtimeLimits.model_readiness?.embedding === false"
           @click="fileInput?.click()"
         >
           <Plus :size="17" />上传文件
         </button>
       </header>
+      <p v-if="!isKnowledge && runtimeLimits.model_readiness?.default_generation === false" role="status" class="muted">
+        平台尚未配置默认生成模型，请联系管理员后创建智能体。
+      </p>
+      <p v-if="isKnowledge && (runtimeLimits.model_readiness?.embedding === false || runtimeLimits.model_readiness?.rerank === false)" role="status" class="muted">
+        知识库检索能力尚未配置完整，请联系管理员配置嵌入和重排模型。嵌入模型未配置时暂不可上传文件。
+      </p>
       <template v-if="!isKnowledge"
         ><section v-if="!selectedAgent" class="empty-screen">
           <div class="empty-symbol"><Bot :size="43" /></div>
@@ -1739,6 +1758,10 @@ onBeforeUnmount(() => {
                     task?.progress.label ?? "等待处理"
                   }}</span>
                 </div>
+                <details v-if="message.execution_info?.length" class="reference-disclosure">
+                  <summary>本次执行状态</summary>
+                  <ul><li v-for="item in message.execution_info" :key="item">{{ item }}</li></ul>
+                </details>
                 <details
                   v-if="uncitedSources(message).length"
                   class="reference-disclosure"
@@ -2354,6 +2377,7 @@ onBeforeUnmount(() => {
             role="tabpanel"
             :aria-labelledby="'agent-tab-' + agentTab"
           >
+            <p v-if="agentTab === 'mcp'" class="muted">Exa 网络搜索与网页读取由系统内置，按需使用，不受下方扩展服务开关影响。实际调用结果以回答的“本次执行状态”为准。</p>
             <AgentCapabilities
               :tab="agentTab"
               :servers="mcpServers"

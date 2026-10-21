@@ -217,6 +217,7 @@ def test_limits_propagation_and_hard_bounds(admin, client, resource):
         "batch_max_files": 1,
         "image_max_bytes": 10485760,
         "message_max_images": 6,
+        "model_readiness": {"default_generation": True, "embedding": True, "rerank": True},
     }
     accepted = post(
         client, f"/conversations/{resource['conversation']['id']}/messages", {"content_text": "hello"}
@@ -302,7 +303,7 @@ async def test_statistics_attempts_deletion_and_private_projection(admin, client
     assert usage["new_counts"]["agents"]["state"] == "partial"
 
 
-def test_cursor_binding_unknown_filters_and_no_deletion(admin):
+def test_cursor_binding_unknown_filters_and_deletion_requires_version(admin):
     page = admin.get("/api/admin/configs/prompt?limit=1").json()["data"]
     cursor = page["next_cursor"]
     assert cursor
@@ -314,7 +315,8 @@ def test_cursor_binding_unknown_filters_and_no_deletion(admin):
     assert admin.get("/api/admin/task-runs?status=invalid").status_code == 422
     assert admin.get("/api/admin/reports/usage?arbitrary=x").status_code == 422
     row = configs(admin, "skill")[0]
-    assert admin.delete("/api/admin/configs/skill/" + row["id"]).status_code == 405
+    assert admin.delete("/api/admin/configs/skill/" + row["id"]).status_code == 422
+    assert admin.get("/api/admin/configs/skill/" + row["id"]).status_code == 200
     historical = admin.get("/api/admin/reports/calls?from=2020-01-01T00:00:00Z&to=2020-01-02T00:00:00Z").json()["data"]
     assert historical["coverage"]["state"] == "not_collected"
     assert historical["coverage"]["value"] is None

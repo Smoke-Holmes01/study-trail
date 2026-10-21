@@ -9,6 +9,8 @@ test("independent admin login, complete navigation, configuration, limits, priva
     console.error("Browser error:", error.message);
   });
   const user = "adminui_" + Date.now();
+  const skillName = "浏览器学习技能-" + Date.now();
+  const serviceName = "参数约束检查-" + Date.now();
   const origin = new URL(info.project.use.baseURL!).origin;
   const register = await page.request.post("/api/v1/auth/register", {
     headers: { Origin: origin },
@@ -51,13 +53,13 @@ test("independent admin login, complete navigation, configuration, limits, priva
   await page.getByRole("link", { name: "Skills", exact: true }).click();
   await page.getByRole("button", { name: "新建技能" }).click();
   await page.getByLabel("稳定标识").fill("browser-skill-" + Date.now());
-  await page.getByLabel("名称", { exact: true }).fill("浏览器学习技能");
+  await page.getByLabel("名称", { exact: true }).fill(skillName);
   await page.getByLabel("指令正文").fill("逐步说明学习问题，使用具体例子。");
   await page.getByRole("button", { name: "保存配置" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const skill = page
     .getByRole("row")
-    .filter({ hasText: "浏览器学习技能" })
+    .filter({ hasText: skillName })
     .first();
   await skill.getByRole("button", { name: "启用", exact: true }).click();
   await page.getByRole("button", { name: "确认", exact: true }).click();
@@ -66,10 +68,17 @@ test("independent admin login, complete navigation, configuration, limits, priva
   await page.getByLabel("指令正文").fill("使用新的例子解释学习问题。");
   await page.getByRole("button", { name: "保存配置" }).click();
   await expect(skill).toContainText("v2");
+  await skill.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("历史任务、修订和调用记录保留");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(skill).toBeVisible();
+  await skill.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await expect(skill).toHaveCount(0);
   await page.getByRole("link", { name: "MCP 服务", exact: true }).click();
   await page.getByRole("button", { name: "新建服务" }).click();
   await page.getByLabel("稳定标识").fill("schema-check-" + Date.now());
-  await page.getByLabel("名称", { exact: true }).fill("参数约束检查");
+  await page.getByLabel("名称", { exact: true }).fill(serviceName);
   await page.getByLabel("服务地址", { exact: true }).fill("https://example.invalid/mcp");
   await page.getByLabel("工具白名单", { exact: false }).fill("lookup");
   await page.getByText("工具参数约束", { exact: true }).click();
@@ -80,6 +89,12 @@ test("independent admin login, complete navigation, configuration, limits, priva
   await page.getByLabel("工具参数约束JSON", { exact: true }).fill("{}");
   await page.getByRole("button", { name: "保存配置" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  const service = page.getByRole("row").filter({ hasText: serviceName });
+  await service.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await expect(service).toHaveCount(0);
+  await page.getByRole("link", { name: "平台提示词", exact: true }).click();
+  await expect(page.getByRole("button", { name: "删除", exact: true }).first()).toBeDisabled();
   await page.getByRole("link", { name: "模型接口", exact: true }).click();
   await page
     .getByRole("row")

@@ -455,9 +455,14 @@ def bound(conn, slot):
         .first()
     )
     if not binding:
-        raise Problem("REQUIRED_CONFIG_MISSING", "必要平台配置未初始化", 409)
+        message = {
+            "default_generation": "平台尚未配置默认生成模型，请联系管理员。",
+            "embedding": "平台尚未配置嵌入模型，知识库索引暂不可用。",
+            "rerank": "平台尚未配置重排模型，知识库检索暂不可用。",
+        }.get(slot, "必要平台配置未初始化")
+        raise Problem("REQUIRED_CONFIG_MISSING", message, 409)
     config = require(db.one(conn, db.platform_configs, binding["config_id"]))
-    if not config["enabled"]:
+    if not config["enabled"] or config["deleted_at"] is not None:
         raise Problem("CONFIG_UNAVAILABLE", "必要平台配置已停用", 409)
     return config, require(db.one(conn, db.config_revisions, binding["revision_id"]))
 
@@ -537,7 +542,7 @@ def catalog(kind, *, include_disabled=False):
     with db.engine.connect() as conn:
         result = {}
         for config in conn.execute(
-            sa.select(db.platform_configs).where(db.platform_configs.c.kind == kind)
+            sa.select(db.platform_configs).where(db.platform_configs.c.kind == kind, db.platform_configs.c.deleted_at.is_(None))
         ).mappings():
             rev = require(db.one(conn, db.config_revisions, config["current_revision_id"]))
             if not include_disabled and not config["enabled"]:
@@ -557,9 +562,21 @@ def limits(conn=None):
     return dict(bound(conn, "limits")[1]["payload"])
 
 
-def snapshot(conn, model_id=None):
+def model_readiness(conn):
+    result = {}
+    for slot in ("default_generation", "embedding", "rerank"):
+        try:
+            bound(conn, slot)
+            result[slot] = True
+        except Problem as exc:
+            if exc.code not in {"REQUIRED_CONFIG_MISSING", "CONFIG_UNAVAILABLE"}:
+                raise
+            result[slot] = False
+    return result
+
+
+def snapshot(conn, model_id=None, *, generation_required=True):
     lock(conn)
-    default, default_rev = bound(conn, "default_generation")
     if model_id:
         default = (
             conn.execute(
@@ -567,6 +584,7 @@ def snapshot(conn, model_id=None):
                     db.platform_configs.c.kind == "model",
                     db.platform_configs.c.stable_id == model_id,
                     db.platform_configs.c.enabled.is_(True),
+                    db.platform_configs.c.deleted_at.is_(None),
                 )
             )
             .mappings()
@@ -579,11 +597,18 @@ def snapshot(conn, model_id=None):
             "exposed", True
         ):
             raise Problem("MODEL_UNAVAILABLE", "当前模型未开放", 503)
-    result = runtime(default, default_rev)
+        result = runtime(default, default_rev)
+    elif generation_required:
+        result = runtime(*bound(conn, "default_generation"))
+    else:
+        result = {}
+    readiness = model_readiness(conn)
     for slot in ("embedding", "rerank"):
-        result[slot] = runtime(*bound(conn, slot))
+        result[slot] = runtime(*bound(conn, slot)) if readiness[slot] else None
     result["limits"] = limits(conn)
     result["prompts"] = {p: bound(conn, "prompt:" + p)[1]["payload"]["body"] for p in PURPOSES}
+    from .builtin_search import configuration
+    result["builtin_search"] = configuration()
     return result
 
 
@@ -593,11 +618,11 @@ def bind(conn, slot, config, *, expected=None):
         .mappings()
         .first()
     )
-    if expected is not None and (not current or current["lock_version"] != expected):
+    if expected is not None and (current["lock_version"] if current else 0) != expected:
         raise Problem("CONFIG_VERSION_CONFLICT", "生效配置已更新，请重新载入", 409)
     rev = require(db.one(conn, db.config_revisions, config["current_revision_id"]))
     payload = rev["payload"]
-    if not config["enabled"]:
+    if not config["enabled"] or config["deleted_at"] is not None:
         raise Problem("CONFIG_UNAVAILABLE", "所选配置尚未启用", 409)
     if slot in {"default_generation", "embedding", "rerank"}:
         if config["kind"] != "model" or payload["model_kind"] != {"default_generation": "generative"}.get(

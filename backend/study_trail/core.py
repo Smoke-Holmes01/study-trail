@@ -107,6 +107,8 @@ def model_config(ident=None, conn=None):
     if conn is not None:
         return snapshot(conn, ident)
     ident = ident or settings().default_model()
+    if not ident:
+        raise Problem("REQUIRED_CONFIG_MISSING", "平台尚未配置默认生成模型，请联系管理员。", 409)
     model = settings().models().get(ident)
     if not model or not model.get("enabled"):
         raise Problem("MODEL_UNAVAILABLE", "当前模型尚不可用，请稍后再试", 503)
@@ -116,12 +118,18 @@ def model_config(ident=None, conn=None):
 
 def agent_config(conn, agent):
     from .mcp_tools import selected
+    from urllib.parse import urlsplit
+    frozen = model_config(agent["model_id"], conn)
+    catalog = settings().mcp_servers()
+    ids = agent["mcp_server_ids"]
+    if frozen.get("builtin_search"):
+        ids = [ident for ident in ids if urlsplit(catalog.get(ident, {}).get("url", "")).hostname != "mcp.exa.ai"]
 
     return {
-        **model_config(agent["model_id"], conn),
+        **frozen,
         "system_prompt": agent["system_prompt"],
         "config_version": agent["config_version"],
-        "mcp_servers": selected(agent["mcp_server_ids"]),
+        "mcp_servers": selected(ids, catalog),
         "knowledge_base_ids": [
             str(x)
             for x in conn.execute(
@@ -295,6 +303,8 @@ def message(conn, row):
         ).mappings()
     ]
     out["sources"] = linked_sources(conn, db.message_sources, "message_id", row["id"])
+    task_row = db.one(conn, db.tasks, row["task_id"], row["owner_id"]) if row["task_id"] else None
+    out["execution_info"] = task_row["result_snapshot"].get("execution_info", []) if task_row else []
     out["exercises"] = [
         exercise(r)
         for r in conn.execute(

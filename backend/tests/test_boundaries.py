@@ -117,6 +117,8 @@ async def test_deleted_source_cannot_publish_plan(client, resource, monkeypatch)
         "exercises": [],
     }
     assert client.delete("/api/v1/files/" + str(file["id"])).status_code == 200
+    # Only actually referenced candidates are dependencies of the saved plan.
+    state["plan"]["stages"][0]["tasks"][0]["resource_source_ids"] = [source["id"]]
     monkeypatch.setattr(workflow, "run_chat", lambda task: workflow.atomic_commit(state))
     await run_task(claimed)
     snapshot = client.get("/api/v1/tasks/" + str(claimed["id"])).json()["data"]

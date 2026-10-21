@@ -14,7 +14,7 @@ with db.engine.connect() as conn:
     target = ScriptDirectory.from_config(Config(str(Path(__file__).parents[1] / "alembic.ini"))).get_current_head()
     if conn.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() != target:
         raise RuntimeError("Run the verified platform migration and bootstrap before starting this version.")
-    for slot in ("default_generation", "embedding", "rerank", "limits", *("prompt:" + p for p in PURPOSES)):
+    for slot in ("limits", *("prompt:" + p for p in PURPOSES)):
         bound(conn, slot)
     cipher()
-print("Schema, platform defaults and encryption key are ready.")
+print("Schema, platform essentials and encryption key are ready.")

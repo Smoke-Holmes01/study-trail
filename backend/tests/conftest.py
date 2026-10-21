@@ -27,7 +27,9 @@ def isolated_database(monkeypatch):
     with db.engine.begin() as conn:
         conn.exec_driver_sql("TRUNCATE users, platform_configs, config_revisions, credential_versions, platform_bindings, resource_events, task_run_facts, invocation_attempts, admin_operation_logs, metric_coverage, migration_imports CASCADE")
         from study_trail.bootstrap import initialize
-        initialize(conn, test=True)
+        initialize(conn)
+        from tools.seed_test_platform import seed_test_platform
+        seed_test_platform(conn)
     caps = {
         name: {
             "enabled": True,
@@ -41,6 +43,8 @@ def isolated_database(monkeypatch):
         for name in ["gemini-3.7-flash-high", "gemini-3.8-flash-high"]
     }
     monkeypatch.setattr(type(settings()), "models", lambda self: caps)
+    # No live built-in search connections during isolated regression.
+    monkeypatch.setattr("study_trail.builtin_search.configuration", lambda: None)
 
 
 @pytest.fixture

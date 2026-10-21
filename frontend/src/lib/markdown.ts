@@ -1,11 +1,36 @@
 import MarkdownIt from "markdown-it";
 import katex from "katex";
 import type { Source } from "./api";
-const md = new MarkdownIt({ html: false, linkify: false, breaks: true });
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+md.linkify.set({ fuzzyLink: false, fuzzyEmail: false });
 md.disable("image");
 md.validateLink = (url: string) =>
-  /^(https?:\/\/|source:[0-9a-f-]{36}$)/i.test(url);
+  isHttpUrl(url) || /^source:[0-9a-f-]{36}$/i.test(url);
 const escape = md.utils.escapeHtml;
+function isHttpUrl(value: string) {
+  if (!/^https?:\/\//i.test(value) || /[\s\u0000-\u001f\u007f]/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+md.core.ruler.after("inline", "inline_url", (state) => {
+  for (const block of state.tokens) {
+    let linkDepth = 0;
+    for (const token of block.children ?? []) {
+      if (token.type === "link_open") linkDepth++;
+      else if (token.type === "link_close") linkDepth--;
+      else if (token.type === "code_inline" && linkDepth === 0 && isHttpUrl(token.content))
+        token.type = "inline_url";
+    }
+  }
+});
+md.renderer.rules.inline_url = (tokens, index) => {
+  const url = escape(tokens[index].content);
+  return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+};
 md.core.ruler.after("inline", "citations", (state) => {
   const sources: Map<string, Source> | undefined = state.env.sources;
   if (!sources) return;

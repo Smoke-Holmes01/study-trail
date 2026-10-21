@@ -1,81 +1,83 @@
-# 学迹 v0.0.2
+# 学迹 v0.0.3
 
-基于LangGraph的自主学习智能辅导平台。用户端与管理端共享Vue、FastAPI、独立Python worker、PostgreSQL/pgvector及私有文件存储。
+基于LangGraph的自主学习智能辅导平台，提供用户端与管理端。Vue、FastAPI、独立Python worker、PostgreSQL/pgvector和私有文件存储；当前86项接口操作、67条路径、29张业务表，迁移0001—0007。
 
-## 本机入口
+## 本轮修复
 
-- 用户端：<http://127.0.0.1:5173>
-- 管理端：<http://127.0.0.1:5173/admin/login>
-- API合同：<http://127.0.0.1:8000/docs>
+- 初始化不再导入个人模型、MCP或模型用途绑定。只创建指定管理员、八个流程提示词、四项内置技能和运行限制；管理员自行配置模型与其他MCP扩展。
+- 管理员可删除模型、MCP、提示词及Skill；采用逻辑删除。生效用途或智能体仍占用时拒绝，历史修订、凭据、任务及审计保留，稳定标识不可复用。
+- 知识库按需检索，问候和能力状态询问跳过；只有回答、习题或计划实际引用的来源才建立正式关联，无引用就不展示参考资料。
+- Exa搜索和网页读取为系统内置能力，无需管理端添加或绑定；保留原Exa配置且避免重复调用。限流、失败和无结果均有降级说明。
+- 消息增加“本次执行状态”，展示程序记录，区分已配置、发现工具、本次调用成功与失败。
+- 网址可点击并换行；要求模型以有意义的名称生成`[名称](URL)`，保留命令与代码块。旧消息原文不改写。
 
-管理员由部署者初始化。使用 `--generate-admin` 时，随机密码仅保存在本机 `.local/admin-bootstrap.json`；该文件不会提交到仓库。没有管理员注册、普通账户提权、密码重置或用户删除入口。
+详见[变更记录](docs/变更记录-v0.0.3.md)、[验证记录](docs/验证记录-v0.0.3.md)及[验收追踪](docs/验收追踪-v0.0.3.md)。引用归属校验及格式指令不构成结论正确性保证；不增加内容自动复核、掌握度或计划打卡。
 
-从本源码仓库根目录（毕业设计目录下的 `src`）运行：
+## 本机启动
+
+Docker Desktop启动后，从本仓库根目录执行：
 
 ```powershell
-& .\scripts\start.ps1
-& .\scripts\stop.ps1
+.\scripts\start.ps1
+.\scripts\stop.ps1
+# 同时停止数据库容器：
+.\scripts\stop.ps1 -Database
 ```
 
-Docker Desktop须运行。重复启动不新建重复服务、导入配置或更换加密密钥。启动执行只读安装检查，已有数据库不会在普通启动时静默迁移。
+用户端：http://127.0.0.1:5173；管理端：http://127.0.0.1:5173/admin/login；API：http://127.0.0.1:8000/docs。
+本机登录信息保存在`.local/admin-bootstrap.json`，不提交。没有管理员注册、普通账户提权、密码重置或用户删除入口。启动仅检查安装，不静默迁移数据库。
 
-## 当前实现
+## 首次安装
 
-用户端保留两个主业务页面、五标签智能体、私有知识库与文件、图片对话、RAG、单消息单技能、受限MCP、练习与按题答案、单题反馈、学习计划、SSE恢复、停止重试及账户设置。
-
-管理端提供独立登录、用户查询启停、模型/流程提示词/Skills/MCP配置、默认模型绑定、智能体概况、文件与任务监控、使用统计、运行限制和操作日志。管理端不提供私有学习正文或文件预览、下载。后台配置只影响后续任务，受理配置和加密凭据版本固定。
-
-实际OpenAPI为85项操作：59项既有用户操作、1项运行限制读取、25项管理操作；29张业务表，迁移0001—0006。
-
-## 配置与首次安装
-
-以下命令均从本仓库根目录执行。Python 3.12、Node及Docker；依赖锁为 `backend/uv.lock`、`frontend/package-lock.json`。
+需要Python 3.12、Node和Docker。复制`backend/.env.example`、`infra/.env.example`为各自.env并设置相同数据库密码和随机CURSOR_SECRET。
 
 ```powershell
-Set-Location backend
+Set-Location infra
+docker compose up -d --wait
+Set-Location ../backend
 uv sync --frozen
-# 首次安装：复制backend/.env.example和infra/.env.example为各自.env，设置相同数据库密码。
-# 填写模型连接和凭据；默认模型目录为示例，须匹配实际提供商。
-# 先在infra目录运行docker compose up -d --wait启动数据库，再执行下面的迁移。
 .\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe tools/bootstrap_platform.py --admin-login your_admin --generate-admin
 Set-Location ../frontend
 npm ci
 ```
 
-数据库是唯一运行配置来源。本仓库config与initial_prompts.json仅用于首次导入；运行后通过管理端编辑。原文件变化不自动覆盖后台修改，重复导入遇到来源变化会拒绝并说明原因。
+生成管理员密码仅写本机文件，不输出密码。首次登录管理端后添加模型并设置用途。空配置时可登录管理，缺少默认生成模型不能创建智能体；文件索引需要嵌入模型。普通答疑不强制依赖嵌入和重排。
 
-真实凭据经Fernet加密存入数据库，主密钥环保存在本机后端环境文件的 `PLATFORM_KEYS`；不得替换已有主密钥来“修复”解密失败。数据库、私有文件与密钥须成套备份。stdio程序和目录由部署环境允许列表限制。
+数据库是运行配置唯一来源，重复初始化不覆盖管理员编辑。模型/MCP JSON只供兼容解析和隔离测试，不在普通初始化中导入。主密钥环保存在后端环境PLATFORM_KEYS，真实凭据加密存库；不得替换旧密钥来修复解密错误。内置Exa使用固定匿名公共端点，可能限流，不代表总能联网。
 
-## 升级与恢复
+## 从0.0.2升级
 
-已有0005库可先演练再升级0006；若是尚未初始化指纹的0004库，先用匹配的0.0.1源码完成0005初始化，再升级。本机重置不会替换部署密钥。指南需要更新时显式执行 `tools/bootstrap_platform.py --admin-login study_admin --refresh-guide`，普通重复初始化不覆盖平台编辑。
+先暂停受理、排空任务，备份数据库、私有文件及部署密钥并独立恢复核验，再运行`alembic upgrade head`至0007。迁移仅增加配置删除状态和约束，不清空模型、账号或学习数据。演练/升级工具使用当前Alembic head：`tools/rehearse_upgrade.py`、`tools/apply_upgrade.py`。
 
-0.0.2按已授权流程先备份并独立恢复核验，再重建本机业务库和私有学习存储，迁移至0006并初始化新版平台指南。本次重置前备份位于 `.local/backups/unify-0.0.2-20261021/`，包含原库、存储、部署环境与原登录信息。
+内置指南有新来源，已有库如需再次初始化或更新指南，应显式运行：
 
-后续升级先暂停受理并排空任务，执行备份、独立恢复及迁移演练，再调用 `tools/apply_upgrade.py`。迁移失败保持维护标记；恢复必须使用同一时点的数据库、文件、密钥及匹配源码。0005不提供破坏性downgrade。详见[本轮验证与恢复说明](docs/验证记录-v0.0.2.md)。
+```powershell
+Set-Location backend
+.\.venv\Scripts\python.exe tools/bootstrap_platform.py --admin-login your_admin --refresh-guide
+```
 
-## 测试与证据
+这会恢复发布版指南并保留旧修订、启用状态；其他自定义提示词保留，命名链接格式在回答运行时补充。本机已经完成0007升级及重启，无需重置数据。旧0004库先用匹配0.0.1源码完成旧指纹初始化，再执行后续升级。存在删除墓碑时0007拒绝降级，避免复活配置；恢复使用匹配的备份和源码。
+
+## 验证
 
 ```powershell
 Set-Location backend
 .\.venv\Scripts\python.exe tools/bootstrap_test_db.py
-.\.venv\Scripts\pytest.exe -q
+.\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe tools/export_openapi.py
 Set-Location ../frontend
 npm run types
-npm run test
+npm test
 npm run build
 Set-Location ..
-& .\scripts\test-e2e.ps1
+.\scripts\test-e2e.ps1
 ```
 
-后端测试只清理明确命名的 `study_trail_test`；浏览器脚本使用独立 `study_trail_e2e`、8001/5174端口和模拟提供商，不触发付费调用。不要将模拟入口用于日常数据库。
-
-本轮后端77项、前端29项通过；双端浏览器回归及完整证据见[0.0.2验证记录](docs/验证记录-v0.0.2.md)。0.0.1真实调用记录保留原版本，不作为本轮真实联调结论。
-
-真实联调脚本按版本保存独立报告且拒绝覆盖已有结果；0.0.2不自动发出真实调用。本次检查不保证知识结论正确、学习成绩提升或所有提供商/图片/容量组合均兼容。Linux完整启动与性能/论文实验尚未在本轮执行。
+隔离后端103项、前端32项、浏览器11项通过；类型检查、生产构建、0001→0007新安装、升级保留数据和元数据检查通过。测试库仅study_trail_test/study_trail_e2e，使用模拟提供商；真实Exa只读取过工具目录，没有执行本轮真实搜索、抓取或付费模型调用。命名链接为提示词规则，未作真实模型依从性实验。性能、内容质量、Linux完整启动及所有外部提供商组合未在本轮验证。
 
 ## 发布
 
-当前发布版本：`0.0.2`，标签为 `0.0.2`，[正式 Release](https://github.com/Smoke-Holmes01/study-trail/releases/tag/0.0.2)。`0.0.1` 标签保留为历史版本。仓库以毕业设计目录中的src为根，包含初始化配置、应用、测试、脚本与验证说明。需求分析和系统设计原文在源码仓库上级目录。
+版本/标签：`0.0.3`，[正式Release](https://github.com/Smoke-Holmes01/study-trail/releases/tag/0.0.3)。0.0.1、0.0.2标签及原验证报告保留，不重写历史测试。第三方版本、API `/v1`和迁移编号保持独立含义。
+
+仓库以毕业设计目录中的src为根；上级需求分析、系统设计和原开题报告不在此Git仓库内。本机环境、密钥、登录信息、私有文件、数据库和恢复备份不上传。

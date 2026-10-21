@@ -454,10 +454,9 @@ def one(conn, t, ident, owner_id=None, lock=False):
 
 def insert(conn, t, **data):
     if t is files:
-        from .platform import lock, bound
+        from .platform import lock, bound, fingerprint
         lock(conn)
-        data.setdefault("index_fingerprint", bound(conn, "embedding")[1]["payload"] and conn.scalar(
-            sa.select(platform_bindings.c.index_fingerprint).where(platform_bindings.c.slot == "embedding")))
+        data.setdefault("index_fingerprint", fingerprint(bound(conn, "embedding")[1]["payload"]))
     if t is document_chunks:
         data.setdefault("index_fingerprint", one(conn, files, data["file_id"])["index_fingerprint"])
     if t is tasks and data.get("kind") != "storage_cleanup":
@@ -467,10 +466,12 @@ def insert(conn, t, **data):
             raise Problem("SERVICE_UNAVAILABLE", "平台维护中，暂不受理新任务", 503)
         from .platform import snapshot
         old = data.get("config_snapshot", {})
-        frozen = snapshot(conn, old.get("model_id"))
+        frozen = snapshot(conn, old.get("model_id"), generation_required=data["kind"] != "file_process")
         data["config_snapshot"] = {**old, **frozen}
         data["timeout_seconds"] = frozen["limits"]["file_timeout_seconds" if data["kind"] == "file_process" else "ai_timeout_seconds"]
         if data["kind"] == "file_process":
+            from .platform import bound
+            bound(conn, "embedding")
             conn.execute(files.update().where(files.c.id == data["file_id"]).values(index_fingerprint=frozen["embedding"]["index_fingerprint"]))
     row = conn.execute(t.insert().values(**data).returning(t)).mappings().one()
     from .telemetry import inserted

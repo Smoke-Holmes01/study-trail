@@ -898,7 +898,8 @@ export interface paths {
         get: operations["AD-C03"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Config */
+        delete: operations["AD-C07"];
         options?: never;
         head?: never;
         /** Edit */
@@ -1224,6 +1225,11 @@ export interface components {
         "Body_I-01": {
             /** File */
             file: string;
+        };
+        /** ConfigDelete */
+        ConfigDelete: {
+            /** Expected Version */
+            expected_version: number;
         };
         /** ConversationCreate */
         ConversationCreate: {
@@ -2099,6 +2105,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Execution Info */
+            execution_info?: string[];
         };
         /** MetricDTO */
         MetricDTO: {
@@ -2125,12 +2133,21 @@ export interface components {
             /** Enabled */
             enabled: boolean;
         };
+        /** ModelReadinessDTO */
+        ModelReadinessDTO: {
+            /** Default Generation */
+            default_generation: boolean;
+            /** Embedding */
+            embedding: boolean;
+            /** Rerank */
+            rerank: boolean;
+        };
         /** ModelsDTO */
         ModelsDTO: {
             /** Items */
             items: components["schemas"]["ModelOptionDTO"][];
             /** Default Model Id */
-            default_model_id: string;
+            default_model_id: string | null;
         };
         /** Page[AdminConfigDTO] */
         Page_AdminConfigDTO_: {
@@ -2360,6 +2377,18 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** PublicRuntimeLimitsDTO */
+        PublicRuntimeLimitsDTO: {
+            /** File Max Bytes */
+            file_max_bytes: number;
+            /** Batch Max Files */
+            batch_max_files: number;
+            /** Image Max Bytes */
+            image_max_bytes: number;
+            /** Message Max Images */
+            message_max_images: number;
+            model_readiness: components["schemas"]["ModelReadinessDTO"];
+        };
         /** RequestInputDTO */
         RequestInputDTO: {
             /** Content Text */
@@ -2371,17 +2400,6 @@ export interface components {
             /** Answer Exercise Id */
             answer_exercise_id: string | null;
             target_plan: components["schemas"]["TargetDTO"] | null;
-        };
-        /** RuntimeLimitsDTO */
-        RuntimeLimitsDTO: {
-            /** File Max Bytes */
-            file_max_bytes: number;
-            /** Batch Max Files */
-            batch_max_files: number;
-            /** Image Max Bytes */
-            image_max_bytes: number;
-            /** Message Max Images */
-            message_max_images: number;
         };
         /** SkillDTO */
         SkillDTO: {
@@ -2835,9 +2853,9 @@ export interface components {
              */
             request_id: string;
         };
-        /** Success[RuntimeLimitsDTO] */
-        Success_RuntimeLimitsDTO_: {
-            data: components["schemas"]["RuntimeLimitsDTO"];
+        /** Success[PublicRuntimeLimitsDTO] */
+        Success_PublicRuntimeLimitsDTO_: {
+            data: components["schemas"]["PublicRuntimeLimitsDTO"];
             /**
              * Request Id
              * Format: uuid
@@ -3004,6 +3022,8 @@ export interface components {
              * @default null
              */
             file_id: string | null;
+            /** Execution Info */
+            execution_info?: string[];
         };
         /** TaskRunMetaDTO */
         TaskRunMetaDTO: {
@@ -9016,6 +9036,96 @@ export interface operations {
             };
         };
     };
+    "AD-C07": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+                ident: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigDelete"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Success_DeletedDTO_"];
+                };
+            };
+            /** @description 业务错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 业务错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     "AD-C04": {
         parameters: {
             query?: never;
@@ -10397,7 +10507,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Success_RuntimeLimitsDTO_"];
+                    "application/json": components["schemas"]["Success_PublicRuntimeLimitsDTO_"];
                 };
             };
             /** @description 业务错误 */

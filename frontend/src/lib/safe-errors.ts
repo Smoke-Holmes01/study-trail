@@ -1,4 +1,6 @@
 const reasons: Record<string, string> = {
+  CONFIG_IN_USE: "配置仍在使用，请先切换生效用途或解除智能体关联。",
+  REQUIRED_CONFIG_MISSING: "平台所需模型或能力尚未配置，请联系管理员。",
   FILE_PARSE_FAILED: "文件解析失败，请检查文档格式或重新上传。",
   NO_READABLE_TEXT: "未提取到可读取文字；扫描件需先转换为文字文档。",
   EMBEDDING_FAILED: "资料向量处理暂时失败，请稍后重试。",

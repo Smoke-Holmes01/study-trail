@@ -36,9 +36,11 @@ def install(metadata):
         column("lock_version", sa.Integer, default=1, server_default="1"),
         timestamp(),
         timestamp("updated_at"),
+        sa.Column("deleted_at", sa.DateTime(timezone=True)),
         sa.UniqueConstraint("kind", "stable_id"),
         sa.CheckConstraint("kind IN ('model','prompt','skill','mcp','limits')"),
         sa.CheckConstraint("lock_version > 0"),
+        sa.CheckConstraint("deleted_at IS NULL OR NOT enabled", name="ck_platform_configs_deleted_disabled"),
     )
     sa.Table(
         "config_revisions",

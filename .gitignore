@@ -51,6 +51,7 @@ blob-report/
 !/backend/tools/rehearse_upgrade.py
 !/backend/tools/apply_upgrade.py
 !/backend/tools/prepare_e2e.py
+!/backend/tools/seed_test_platform.py
 !/backend/tools/e2e_app.py
 !/backend/tools/verify_live.py
 

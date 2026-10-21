@@ -46,7 +46,7 @@ async def lifespan(app):
         pass
 
 
-app = FastAPI(title="学迹 Study Trail", version="0.0.2", lifespan=lifespan)
+app = FastAPI(title="学迹 Study Trail", version="0.0.3", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 
@@ -358,6 +358,8 @@ def bind_libraries(conn, agent, user, ids):
 @app.post(PREFIX + "/agents", operation_id="A-02")
 def create_agent(body: s.AgentCreate, ctx=D):
     conn, user, _ = ctx
+    from .platform import lock
+    lock(conn)
     config = c.model_config()
     data = capability_selections(body.model_dump(exclude={"knowledge_base_ids"}), defaults=True)
     row = db.insert(
@@ -374,6 +376,8 @@ def create_agent(body: s.AgentCreate, ctx=D):
 @app.patch(PREFIX + "/agents/{agent_id}", operation_id="A-04")
 def update_agent(agent_id: UUID, body: s.AgentPatch, ctx=D):
     conn, user, _ = ctx
+    from .platform import lock
+    lock(conn)
     if body.knowledge_base_ids is not None:
         for ident in sorted(body.knowledge_base_ids):
             c.require(db.one(conn, db.knowledge_bases, ident, user["id"], lock=True))
@@ -1312,8 +1316,8 @@ app.include_router(admin_router)
 
 @app.get(PREFIX + "/runtime-limits", operation_id="RT-01")
 def runtime_limits(ctx=D):
-    from .platform import limits
+    from .platform import limits, model_readiness
     values = limits(ctx[0])
-    return c.envelope({key: values[key] for key in ("file_max_bytes", "batch_max_files", "image_max_bytes", "message_max_images")})
+    return c.envelope({**{key: values[key] for key in ("file_max_bytes", "batch_max_files", "image_max_bytes", "message_max_images")}, "model_readiness": model_readiness(ctx[0])})
 
 install(app)

@@ -61,10 +61,11 @@ def install(app):
     created = {"AUTH-01", "A-02", "C-02", "I-01", "K-02"}
     accepted = {"A-07", "C-09", "C-10", "F-02", "F-05", "Q-02", "T-04"}
     simple.update({
-        "RT-01": o.RuntimeLimitsDTO, "AD-A01": o.AdminLoginDTO, "AD-A02": o.AdminSessionDTO,
+        "RT-01": o.PublicRuntimeLimitsDTO, "AD-A01": o.AdminLoginDTO, "AD-A02": o.AdminSessionDTO,
         "AD-A03": o.CsrfDTO, "AD-U01": o.Page[o.AdminUserDTO], "AD-U02": o.AdminUserDTO,
         "AD-C01": o.Page[o.AdminConfigDTO], "AD-C02": o.AdminConfigDTO, "AD-C03": o.AdminConfigDTO,
         "AD-C04": o.AdminConfigDTO, "AD-C05": o.AdminConfigDTO, "AD-C06": o.ConnectionTestDTO,
+        "AD-C07": o.DeletedDTO,
         "AD-B01": o.BindingsDTO, "AD-B02": o.BindingSavedDTO,
         "AD-O01": o.Page[o.AgentMetaDTO], "AD-O02": o.Page[o.FileRunMetaDTO],
         "AD-O03": o.Page[o.TaskRunMetaDTO], "AD-O04": o.TaskRunMetaDTO, "AD-O05": o.Page[o.InvocationMetaDTO],

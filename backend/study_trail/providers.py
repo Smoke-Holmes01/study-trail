@@ -168,6 +168,8 @@ class Gateway:
                 async with httpx.AsyncClient(timeout=self.timeout(30), trust_env=False) as client:
                     kind = "embedding" if path == "embeddings" else "rerank"
                     config = self.task["config_snapshot"][kind]
+                    if not config:
+                        raise Problem("REQUIRED_CONFIG_MISSING", "知识库模型尚未配置，请联系管理员。", 409)
                     provider = config["provider"]
                     payload = {**payload, "model": config["api_model_id"]}
                     response = await self.post(client, provider["base_url"].rstrip("/") + "/" + path,
@@ -202,11 +204,12 @@ class Gateway:
     async def search(self, query):
         from . import mcp_tools
 
-        server = self.task["config_snapshot"].get("mcp_servers", {}).get("exa")
+        server = self.task["config_snapshot"].get("builtin_search")
         if not server:
             return []
         async with mcp_tools.connect(server, self.timeout(30)) as session:
-            tools = await mcp_tools.discover(session, "exa", server, self.timeout(30))
+            from .builtin_search import ID
+            tools = await mcp_tools.discover(session, ID, server, self.timeout(30))
             tool = next((tool for tool in tools if tool["name"] == "web_search_exa"), None)
             if tool is None:
                 raise Problem("MCP_UNAVAILABLE", "搜索工具暂时不可用", 503)
@@ -218,6 +221,28 @@ class Gateway:
 
 
 def parse_search(text):
+    try:
+        value = json.loads(text)
+    except (ValueError, TypeError):
+        value = None
+    if isinstance(value, dict):
+        rows = value.get("results", value.get("pages", []))
+        if not rows and value.get("url"):
+            rows = [value]
+    else:
+        rows = value if isinstance(value, list) else []
+    if isinstance(rows, list):
+        blocks = []
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("url"), str):
+                continue
+            content = row.get("text") or row.get("content") or row.get("markdown") or row.get("highlights") or row.get("summary")
+            if isinstance(content, list):
+                content = "\n".join(s for s in content if isinstance(s, str))
+            if isinstance(content, str) and content.strip():
+                blocks.append(f"Title: {str(row.get('title') or row['url']).splitlines()[0]}\nURL: {row['url']}\nText: {content}")
+        if blocks:
+            text = "\n---\n".join(blocks)
     entries = []
     # Official MCP currently provides text. Accept URL/Title labels, not invented JSON results.
     for block in re.split(r"(?=^Title:)", text, flags=re.MULTILINE):
@@ -254,3 +279,14 @@ def parse_search(text):
         if len(entries) == 5:
             break
     return entries
+
+
+def parse_search_result(raw):
+    """Normalize only fields returned by Exa; never infer page content from arguments."""
+    structured = raw.get("structuredContent")
+    if structured:
+        parsed = parse_search(json.dumps(structured, ensure_ascii=False))
+        if parsed:
+            return parsed
+    from .mcp_tools import text_result
+    return parse_search(text_result(raw))

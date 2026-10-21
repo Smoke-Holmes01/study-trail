@@ -403,6 +403,17 @@ function toggle(row: any, user = false) {
 function isBound(row: Config) {
   return bindings.value.some((b) => b.config_id === row.id);
 }
+function deleteConfig(row: Config) {
+  confirmation.value = {
+    title: "删除配置",
+    text: `确认删除「${row.name}」？删除后将从目录移除，界面不提供恢复；历史任务、修订和调用记录保留，稳定标识不再复用。正在生效或被智能体使用的配置须先解除关联。`,
+    run: async () => {
+      await adminApi(`/configs/${configKind.value}/${row.id}`, "DELETE", { expected_version: row.lock_version });
+      notice.value = "配置已删除。";
+      await load();
+    },
+  };
+}
 function setBinding(row: Config) {
   const slot =
     row.payload.model_kind === "generative"
@@ -415,7 +426,7 @@ function setBinding(row: Config) {
     run: async () => {
       await adminApi(`/bindings/${slot}`, "PATCH", {
         config_id: row.id,
-        expected_version: current?.lock_version,
+        expected_version: current?.lock_version ?? 0,
         confirm_switch: true,
       });
       notice.value = "平台默认模型已更新。";
@@ -518,7 +529,7 @@ const ordinaryList = computed(() =>
       <header class="admin-topbar">
         <span>管理端 / {{ title }}</span>
         <div>
-          <span class="admin-version">v0.0.2</span
+          <span class="admin-version">v0.0.3</span
           ><button
             class="icon"
             :aria-label="dark ? '切换明亮主题' : '切换暗色主题'"
@@ -663,6 +674,12 @@ const ordinaryList = computed(() =>
           role="status"
         >
           正在载入…
+        </p>
+        <p v-if="section === 'models'" class="muted" role="status">
+          平台初始化不预置模型。请新建生成模型并设为默认；使用知识库时还需分别配置嵌入和重排模型并设为生效。
+        </p>
+        <p v-if="section === 'mcp'" class="muted" role="status">
+          Exa 网络搜索和网页读取由系统内置，无需在此添加。此处用于其他外部工具，请配置连接、工具白名单及凭据。工具白名单须填写完整工具名，不支持星号通配符。
         </p>
         <template v-if="section === 'overview' && usage">
           <div class="admin-stat-grid">
@@ -860,6 +877,7 @@ const ordinaryList = computed(() =>
                         >
                           设为默认
                         </button>
+                        <button class="danger" :disabled="isBound(row)" :title="isBound(row) ? '请先切换生效用途的替代配置' : '删除配置'" @click="deleteConfig(row)">删除</button>
                       </div>
                     </td></template
                   >

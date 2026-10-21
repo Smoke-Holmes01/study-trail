@@ -37,7 +37,9 @@ with db.engine.begin() as conn:
     if not actor:
         actor=db.insert(conn,db.users,login='e2e_admin',login_normalized='e2e_admin',display_name='测试管理员',role='admin',password_hash=core.password_hash.hash('e2e-admin-password'))['id']
     refresh_builtin_guide(conn,actor)
-    initialize(conn,test=True)
+    initialize(conn)
+    from tools.seed_test_platform import seed_test_platform
+    seed_test_platform(conn)
 """
 subprocess.run([sys.executable, "-c", code], env=env, cwd=Path(__file__).parents[1], check=True)
 # The environment file is local-only and contains a URL credential. Do not print it.

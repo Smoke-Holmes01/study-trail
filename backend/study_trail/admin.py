@@ -78,8 +78,12 @@ class Status(s.Input):
 
 class Binding(s.Input):
     config_id: UUID
-    expected_version: int = Field(gt=0, strict=True)
+    expected_version: int = Field(ge=0, strict=True)
     confirm_switch: bool = False
+
+
+class ConfigDelete(s.Input):
+    expected_version: int = Field(gt=0, strict=True)
 
 
 def version(row, expected):
@@ -91,7 +95,7 @@ def config(conn, kind, ident):
     if kind not in {"model", "prompt", "skill", "mcp"}:
         raise c.Problem("RESOURCE_NOT_FOUND", "配置类别不存在", 404)
     row = c.require(db.one(conn, db.platform_configs, ident))
-    if row["kind"] != kind:
+    if row["kind"] != kind or row["deleted_at"] is not None:
         raise c.Problem("RESOURCE_NOT_FOUND", "配置不存在", 404)
     return row
 
@@ -297,7 +301,7 @@ def configs(
     query_params(request, {"q", "enabled", "purpose", "model_kind"})
     if kind not in {"model", "prompt", "skill", "mcp"}:
         raise c.Problem("RESOURCE_NOT_FOUND", "配置类别不存在", 404)
-    clauses = [db.platform_configs.c.kind == kind]
+    clauses = [db.platform_configs.c.kind == kind, db.platform_configs.c.deleted_at.is_(None)]
     if q:
         clauses.append(db.platform_configs.c.name.ilike("%" + q + "%"))
     if enabled is not None:
@@ -415,6 +419,27 @@ def config_status(kind: str, ident: UUID, body: Status, request: Request, ctx=D)
     return write(ctx[0], ctx[1], request, body.model_dump(), action, kind, ident)
 
 
+@router.delete("/configs/{kind}/{ident}", operation_id="AD-C07")
+def delete_config(kind: str, ident: UUID, body: ConfigDelete, request: Request, ctx=D):
+    def action():
+        p.lock(ctx[0])
+        row = config(ctx[0], kind, ident)
+        version(row, body.expected_version)
+        if ctx[0].scalar(sa.select(db.platform_bindings.c.slot).where(db.platform_bindings.c.config_id == ident).limit(1)):
+            raise c.Problem("CONFIG_IN_USE", "此配置仍用于生效用途，请先切换替代配置后删除。", 409)
+        used = {
+            "model": db.agents.c.model_id == row["stable_id"],
+            "mcp": db.agents.c.mcp_server_ids.contains([row["stable_id"]]),
+            "skill": db.agents.c.skill_ids.contains([row["stable_id"]]),
+        }.get(kind)
+        if used is not None and ctx[0].scalar(sa.select(db.agents.c.id).where(used).limit(1)):
+            raise c.Problem("CONFIG_IN_USE", "此配置仍被智能体选择，请先解除关联或更换配置后删除。", 409)
+        db.update(ctx[0], db.platform_configs, ident, enabled=False, deleted_at=db.now(), lock_version=row["lock_version"] + 1)
+        return {"deleted_id": ident}, 200
+
+    return write(ctx[0], ctx[1], request, body.model_dump(), action, kind, ident)
+
+
 @router.get("/bindings", operation_id="AD-B01")
 def bindings(ctx=D):
     return c.envelope(
@@ -434,6 +459,8 @@ def binding(slot: str, body: Binding, request: Request, ctx=D):
     def action():
         p.lock(ctx[0])
         row = c.require(db.one(ctx[0], db.platform_configs, body.config_id))
+        if row["deleted_at"] is not None:
+            raise c.Problem("RESOURCE_NOT_FOUND", "配置不存在", 404)
         if not body.confirm_switch:
             raise c.Problem("CONFIRM_REPLACEMENT_REQUIRED", "请确认切换生效配置", 409)
         if slot.startswith("prompt:"):

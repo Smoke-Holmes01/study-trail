@@ -861,6 +861,21 @@ button,
   line-height: 1.9;
   margin: 10px 0;
 }
+.markdown a[href^="http"] {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+.markdown a[href^="http"]:hover {
+  text-decoration-thickness: 2px;
+}
+.markdown a[href^="http"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 .markdown h1 {
   font-size: 22px;
   margin: 22px 0 12px;

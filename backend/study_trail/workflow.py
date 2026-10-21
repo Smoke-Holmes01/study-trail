@@ -12,14 +12,29 @@ from langgraph.graph import END, START, StateGraph
 from . import core as c
 from . import db, mcp_tools
 from .execution import assert_claim, publish, terminal
-from .providers import Gateway, image_content, input_estimate, parse_search
+from .providers import Gateway, image_content, input_estimate, parse_search_result
 from .schemas import PlanPayload
 from .student_constraints import constraints
+from .builtin_search import ID as BUILTIN_SEARCH_ID, TOOLS as SEARCH_TOOLS
 
+
+
+LINK_FORMAT_INSTRUCTION = (
+    "网页、下载文件及文档入口使用有意义的名称作为超链接文字，采用 Markdown 的[名称](URL)格式。"
+    "例如显示‘DeepSeek Harness Windows 安装包’或‘官方文档’，不要把URL本身当作链接名称，"
+    "不要直接展示长网址，也不要用反引号或代码块包住网址。"
+    "根据资料中的产品名、平台和文件类型命名，不推测未确认的版本、平台或官方身份。"
+    "只使用本次资料或用户提供的真实地址，不编造、补全或改写下载URL；没有可靠地址时明确说明。"
+    "若用户明确要求原始URL、命令或代码示例，则按其要求保留原文。"
+    "资料出处仍使用[来源名称](source:UUID)引用，不用外部超链接代替来源角标。"
+)
 
 
 def flow_prompt(task, purpose):
-    return task["config_snapshot"]["prompts"][purpose]
+    body = task["config_snapshot"]["prompts"][purpose]
+    if purpose == "answer" and LINK_FORMAT_INSTRUCTION not in body:
+        body += "\n" + LINK_FORMAT_INSTRUCTION
+    return body
 
 
 class State(TypedDict, total=False):
@@ -40,6 +55,7 @@ class State(TypedDict, total=False):
     search_query: str
     tool_evidence: list
     degradation: list
+    execution_info: list
 
 
 async def run_prompt(task):
@@ -109,6 +125,7 @@ async def intent(state):
             + json.dumps(task["config_snapshot"].get("skill"), ensure_ascii=False)
             + "\n目标标签："
             + json.dumps(inp.get("target_plan"), ensure_ascii=False)
+            + '\n同时返回 retrieval_mode:"none|knowledge|web|auto" 和 capability_check:boolean。问候、闲聊、工具或连接能力状态询问用none；明确询问当前能力状态时capability_check=true。教材/已上传资料问题用knowledge，实时事实或明确联网请求用web，其他学习问题按需auto。不要因历史中出现检索请求就把本轮问候或能力询问当检索请求。'
         )
         if result.get("action") not in {
             "plan_create",
@@ -119,6 +136,15 @@ async def intent(state):
             "clarify",
         }:
             result["action"] = "clarify"
+    text = inp["content_text"].strip().strip("！？?!。 ")
+    if text.lower() in {"你好", "您好", "谢谢", "hello", "hi", "好的"}:
+        result.update(action="tutor", retrieval_mode="none", capability_check=False)
+    elif text in {"现在有了吗", "现在可以了吗", "能联网了吗", "网络搜索可以使用吗", "检查一下网络搜索可以使用吗", "mcp工具呢"}:
+        result.update(retrieval_mode="none", capability_check=True)
+    if result.get("capability_check") is True:
+        result.update(action="tutor", retrieval_mode="none")
+    if result.get("retrieval_mode") not in {"none", "knowledge", "web", "auto"}:
+        result["retrieval_mode"] = "auto"
     result.update(constraints(inp["content_text"], task["created_at"]))
     if inp.get("attachment_ids"):
         with db.engine.begin() as conn:
@@ -160,6 +186,7 @@ async def intent(state):
         "degradation": [],
         "repair_used": False,
         "exercises": [],
+        "execution_info": [],
     }
 
 
@@ -485,7 +512,7 @@ def message_budget(messages):
 async def kb_retrieve(state):
     task = state["task"]
     bases = task["config_snapshot"]["knowledge_base_ids"]
-    if not bases:
+    if not bases or state["intent"].get("retrieval_mode") in {"none", "web"}:
         return {"candidates": []}
     publish(task, "retrieve")
     try:
@@ -501,7 +528,7 @@ async def kb_retrieve(state):
     except c.Problem as exc:
         if exc.code == "TASK_TIMEOUT":
             raise
-        return {"candidates": [], "degradation": [*state["degradation"], "知识库检索暂时不可用"]}
+        return {"candidates": [], "degradation": [*state["degradation"], "知识库检索暂时不可用"], "execution_info": [*state.get("execution_info", []), "本次知识库检索失败，未取得资料"]}
     with db.engine.begin() as conn:
         rows = list(
             conn.execute(
@@ -518,7 +545,7 @@ async def kb_retrieve(state):
                 .limit(20)
             ).mappings()
         )
-    return {"candidates": [dict(row) for row in rows]}
+    return {"candidates": [dict(row) for row in rows], "execution_info": [*state.get("execution_info", []), "本次已检索知识库"]}
 
 
 async def rerank(state):
@@ -559,9 +586,14 @@ async def rerank(state):
 async def coverage(state):
     sources = state["sources"]
     task = state["task"]
+    mode = state["intent"].get("retrieval_mode", "auto")
+    if mode in {"none", "knowledge"}:
+        return {"search_needed": False, "search_query": ""}
+    if mode == "web":
+        return {"search_needed": True, "search_query": state["intent"].get("retrieval_query") or task["input_snapshot"]["content_text"]}
     if not sources:
         return {
-            "search_needed": True,
+            "search_needed": False,
             "search_query": state["intent"].get("retrieval_query")
             or task["input_snapshot"]["content_text"]
             or "图片学习题目",
@@ -581,6 +613,16 @@ async def coverage(state):
 async def web_search(state):
     """Bounded MCP planning/execution phase, followed by the existing streamed answer."""
     servers = {k: dict(v) for k, v in state["task"]["config_snapshot"].get("mcp_servers", {}).items()}
+    info = list(state.get("execution_info", []))
+    if state.get("intent", {}).get("retrieval_mode") == "none":
+        return {"tool_evidence": [], "execution_info": [*info, "本次未调用网络搜索或外部工具"]}
+    builtin = state["task"]["config_snapshot"].get("builtin_search")
+    if builtin:
+        # Old administrator Exa entries are preserved, but must not duplicate built-in calls.
+        from urllib.parse import urlsplit
+        servers = {k:v for k,v in servers.items() if urlsplit(v.get("url", "")).hostname != "mcp.exa.ai"}
+        if state["search_needed"]:
+            servers[BUILTIN_SEARCH_ID] = dict(builtin)
     degradation = list(state["degradation"])
     if not servers:
         if state["search_needed"]:
@@ -591,6 +633,7 @@ async def web_search(state):
     publish(task, "search")
     sources = list(state["sources"])
     evidence = []
+    any_tool_succeeded = False
     budget = task["config_snapshot"]["input_token_budget"]
     for server in servers.values():
         server["_task"] = task
@@ -616,12 +659,15 @@ async def web_search(state):
             for ident, server in servers.items():
                 try:
                     session = await stack.enter_async_context(mcp_tools.connect(server, gateway.timeout(30)))
-                    tools.extend(await mcp_tools.discover(session, ident, server, gateway.timeout(30)))
+                    discovered = await mcp_tools.discover(session, ident, server, gateway.timeout(30))
+                    tools.extend(discovered)
+                    info.append(f"{server['name']}：已发现{len(discovered)}个允许的工具")
                     sessions[ident] = session
                 except asyncio.CancelledError:
                     raise
                 except Exception:
                     degradation.append(f"{server['name']}暂时不可用")
+                    info.append(f"{server['name']}：连接或工具发现失败")
             functions = [mcp_tools.function_schema(t) for t in tools]
             lookup = {mcp_tools.function_name(t): t for t in tools}
             function_cost = input_estimate(json.dumps(functions, ensure_ascii=False))
@@ -661,11 +707,14 @@ async def web_search(state):
                                 gateway.timeout(30),
                             )
                             query_cache[cache_key] = raw
-                        text = mcp_tools.text_result(raw)
-                        if tool["server_id"] == "exa" and tool["name"] == "web_search_exa":
-                            parsed = parse_search(text)
+                        any_tool_succeeded = True
+                        info.append(f"{'内置搜索' if tool['server_id'] == BUILTIN_SEARCH_ID else '外部工具'} {tool['name']}：调用成功")
+                        if tool["server_id"] in {BUILTIN_SEARCH_ID, "exa"} and tool["name"] in SEARCH_TOOLS:
+                            parsed = parse_search_result(raw)
                             urls = {s.get("url") for s in sources}
                             sources.extend(s for s in parsed if s["url"] not in urls)
+                            if not parsed:
+                                degradation.append("搜索工具已执行，但未取得可展示的网页来源")
                             content = json.dumps(parsed, ensure_ascii=False)
                         else:
                             content = json.dumps(raw, ensure_ascii=False)
@@ -677,6 +726,7 @@ async def web_search(state):
                             raise
                         content = "工具执行失败：" + exc.message
                         degradation.append(content)
+                        info.append(f"外部工具 {call['function']['name']}：调用失败（{exc.code}）")
                     except Exception:
                         content = "工具执行失败，缺失部分使用模型知识"
                         degradation.append(content)
@@ -693,12 +743,17 @@ async def web_search(state):
         degradation.append("网络补充暂时不可用，缺失部分使用模型知识")
     if state["search_needed"] and not any(s["kind"] == "web" for s in sources):
         degradation.append("缺失部分没有网络检索依据")
-    return {"sources": sources, "degradation": degradation, "tool_evidence": evidence}
+    if not any_tool_succeeded:
+        info.append("本次没有成功执行外部工具，不能据此确认搜索可用")
+    return {"sources": sources, "degradation": degradation, "tool_evidence": evidence, "execution_info": list(dict.fromkeys(info))}
 
 
 async def answer_stream(state):
     task = state["task"]
-    publish(task, "generate", sources=state["sources"])
+    publish(task, "generate", sources=[])
+    if state.get("intent", {}).get("capability_check") is True:
+        text = "系统已内置 Exa 网络搜索与网页读取，无需管理员添加服务。已配置不等于本次调用成功；本条是能力状态询问，未执行网络检索或知识库检索。你可以提出具体搜索问题，实际调用结果会显示在执行状态中。"
+        return {"answer": text, "exercises": []}
     last = 0
     if state["action"] == "clarify" and state.get("answer"):
         publish(task, text=state["answer"])
@@ -725,6 +780,7 @@ async def answer_stream(state):
             + "；".join(state["degradation"]),
         },
     ]
+    messages.append({"role": "system", "content": "引用仅用[来源名称](source:UUID)且只在实际使用资料时标记，不要为问候/能力说明附学习资料。以下是程序记录的本次执行事实，不能凭历史对话或自己的能力猜测声称调用成功：" + json.dumps(state.get("execution_info", []), ensure_ascii=False) + "。未记录成功时不得声称已验证网络或工具可用。"})
     if state.get("tool_evidence"):
         messages.append(
             {
@@ -903,6 +959,20 @@ def validate_answer_sources(answer, sources):
         raise c.Problem("SOURCE_UNAVAILABLE", "回答引用不在实际依据中", 409)
 
 
+def used_sources(state):
+    """Select actual citation IDs; this validates identity, never factual support."""
+    validate_answer_sources(state["answer"], state["sources"])
+    ids = {str(UUID(s)) for s in re.findall(r"source:([0-9a-f-]{36})", state["answer"], re.IGNORECASE)}
+    for exercise in state.get("exercises", []):
+        ids.update(str(s) for s in exercise.get("source_ids", []))
+        ids.update(str(s) for s in (exercise.get("known_answer_snapshot") or {}).get("source_ids", []))
+    if state.get("plan"):
+        for stage in state["plan"]["stages"]:
+            for item in stage["tasks"]:
+                ids.update(str(s) for s in item["resource_source_ids"])
+    return [s for s in state["sources"] if str(s["id"]) in ids]
+
+
 def render_plan(value):
     text = f"# {value['title']}\n\n{value['goal']}\n"
     if value["deadline"]:
@@ -937,7 +1007,7 @@ async def atomic_commit(state):
                 raise c.Problem("TARGET_DELETED", "目标计划已删除，未保存修改", 409)
             if plan_row["content_version"] != row["base_plan_version"]:
                 raise c.Problem("PLAN_VERSION_CONFLICT", "计划已更新，请查看最新版后重试", 409)
-        sources = state["sources"]
+        sources = used_sources(state)
         validate_answer_sources(state["answer"], sources)
         for source in sorted(sources, key=lambda x: str(x.get("file_id") or "")):
             if source["kind"] == "file":
@@ -1051,6 +1121,7 @@ async def atomic_commit(state):
                 "sources": jsonable_encoder(sources),
                 "exercise_ids": exercise_ids,
                 "plan_mutation": mutation,
+                "execution_info": state.get("execution_info", []),
             },
         )
     return {}

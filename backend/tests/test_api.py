@@ -243,7 +243,7 @@ def test_database_guards_cross_owner_private_references(client, resource):
             )
 
 
-def test_openapi_contract_has_85_operations_and_public_models(client):
+def test_openapi_contract_has_86_operations_and_public_models(client):
     spec = client.get("/openapi.json").json()
     operations = [
         value["operationId"]
@@ -251,7 +251,7 @@ def test_openapi_contract_has_85_operations_and_public_models(client):
         for method, value in path.items()
         if method in {"get", "post", "patch", "delete"}
     ]
-    assert len(operations) == len(set(operations)) == 85
+    assert len(operations) == len(set(operations)) == 86
     assert "StudentDTO" in spec["components"]["schemas"]
     assert "password_hash" not in json_schema(spec["components"]["schemas"]["StudentDTO"])
 

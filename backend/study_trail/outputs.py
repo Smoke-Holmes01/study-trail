@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .schemas import PlanPayload
 
@@ -49,7 +49,7 @@ class ModelOptionDTO(BaseModel):
 
 class ModelsDTO(BaseModel):
     items: list[ModelOptionDTO]
-    default_model_id: str
+    default_model_id: str | None
 
 
 class RuntimeLimitsDTO(BaseModel):
@@ -57,6 +57,16 @@ class RuntimeLimitsDTO(BaseModel):
     batch_max_files: int
     image_max_bytes: int
     message_max_images: int
+
+
+class ModelReadinessDTO(BaseModel):
+    default_generation: bool
+    embedding: bool
+    rerank: bool
+
+
+class PublicRuntimeLimitsDTO(RuntimeLimitsDTO):
+    model_readiness: ModelReadinessDTO
 
 
 class AdminSessionDTO(BaseModel):
@@ -355,6 +365,7 @@ class MessageDTO(BaseModel):
     sources: list[SourceDTO]
     exercises: list[ExerciseDTO]
     created_at: datetime
+    execution_info: list[str] = Field(default_factory=list)
 
 
 class KnowledgeBaseDTO(BaseModel):
@@ -423,6 +434,7 @@ class TaskResultDTO(BaseModel):
     plan_mutation: PlanMutationDTO | None
     prompt_text: str | None = None
     file_id: UUID | None = None
+    execution_info: list[str] = Field(default_factory=list)
 
 
 class ProgressDTO(BaseModel):

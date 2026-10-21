@@ -1,6 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { renderMarkdown } from "../src/lib/markdown";
 describe("safe education content", () => {
+  it("renders bare and inline-code HTTP URLs as safe external hyperlinks", () => {
+    const box = document.createElement("div");
+    box.innerHTML = renderMarkdown("下载：`https://example.com/app.exe?x=1&y=2`\n另见 https://example.com/docs");
+    const links = [...box.querySelectorAll("a")];
+    expect(links.map(a => a.getAttribute("href"))).toEqual(["https://example.com/app.exe?x=1&y=2", "https://example.com/docs"]);
+    expect(links.every(a => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    expect(box.querySelector("code")).toBeNull();
+  });
+  it("keeps commands, fenced URLs and non-HTTP code literal without nested anchors", () => {
+    const box = document.createElement("div");
+    box.innerHTML = renderMarkdown("`curl https://example.com`\n`javascript:alert(1)`\n```text\nhttps://example.com/raw\n```\n[`https://example.com/label`](https://example.com/destination)");
+    expect(box.querySelectorAll("a")).toHaveLength(1);
+    expect(box.querySelector("a a")).toBeNull();
+    expect(box.querySelector("pre code")?.textContent).toContain("https://example.com/raw");
+    expect(box.querySelector("a")?.getAttribute("href")).toBe("https://example.com/destination");
+  });
+  it("rejects malformed URLs, credentials and unsafe schemes in inline code", () => {
+    const box = document.createElement("div");
+    box.innerHTML = renderMarkdown("`https://` `https://user:password@example.com` `file:///tmp/x` `data:text/html,hello`");
+    expect(box.querySelectorAll("a")).toHaveLength(0);
+    expect(box.querySelectorAll("code")).toHaveLength(4);
+  });
   it("does not load model-supplied remote images automatically", () => {
     expect(
       renderMarkdown("![pixel](https://example.com/private?data=secret)"),
