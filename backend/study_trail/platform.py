@@ -13,6 +13,7 @@ from fastapi.encoders import jsonable_encoder
 from . import db
 from .config import settings
 from .core import Problem, require
+from .skills import DEFAULT_SKILL_IDS
 
 PURPOSES = (
     "intent",
@@ -50,8 +51,9 @@ def digest(value):
     ).hexdigest()
 
 
-def invalid(message="平台配置参数不合法"):
-    raise Problem("VALIDATION_ERROR", message, 422)
+def invalid(message="平台配置参数不合法", field=None):
+    details = {"field_errors": [{"field": field, "message": message}]} if field else None
+    raise Problem("VALIDATION_ERROR", message, 422, details)
 
 
 def lock(conn):
@@ -119,7 +121,7 @@ def credential(conn, config_id, slot, value, actor):
     return str(ident)
 
 
-def validate(kind, payload, purpose=None):
+def validate(kind, payload, purpose=None, stable_id=None):
     if not isinstance(payload, dict):
         invalid()
     payload = dict(payload)
@@ -167,6 +169,11 @@ def validate(kind, payload, purpose=None):
             if type(payload[key]) is not int or not lo <= payload[key] <= hi:
                 invalid(f"{key} 应为 {lo}—{hi} 的整数")
     elif kind in {"prompt", "skill"}:
+        if kind == "skill" and stable_id is not None:
+            expected_default = stable_id in DEFAULT_SKILL_IDS
+            if "default_enabled" in payload and payload["default_enabled"] != expected_default:
+                invalid("技能默认选择由三项内置技能规则确定，不可修改", "payload.default_enabled")
+            payload["default_enabled"] = expected_default
         body = payload.get("body")
         if (
             not isinstance(body, str)
@@ -277,13 +284,16 @@ def validate(kind, payload, purpose=None):
             invalid("不支持的传输方式")
         from jsonschema import Draft202012Validator
 
-        for name, schema in payload.get("parameter_schemas", {}).items():
+        constraints = payload.get("parameter_schemas", {})
+        if not isinstance(constraints, dict):
+            invalid("工具参数约束必须为JSON对象", "payload.parameter_schemas")
+        for name, schema in constraints.items():
             if name not in tools:
-                invalid("参数约束只能属于白名单工具")
+                invalid("参数约束只能属于白名单工具", "payload.parameter_schemas")
             try:
                 Draft202012Validator.check_schema(schema)
             except Exception:
-                invalid("工具参数Schema不合法")
+                invalid("工具参数Schema不合法", "payload.parameter_schemas")
         for mapping in (
             payload.get("env", {}),
             payload.get("headers", {}),
@@ -346,7 +356,7 @@ def revision(conn, config, payload, secret_updates, actor):
     if config["kind"] == "model" and not refs.get("api_key"):
         invalid("请提供模型接口凭据")
     ident = config["current_revision_id"] if not old else uuid4()
-    payload = validate(config["kind"], payload, config["purpose"])
+    payload = validate(config["kind"], payload, config["purpose"], config["stable_id"])
     number = old["revision_no"] + 1 if old else 1
     conn.execute(
         db.config_revisions.insert().values(
@@ -519,7 +529,7 @@ def runtime(config, rev):
         "name": config["name"],
         "description": config["description"],
         "version": str(rev["revision_no"]),
-        "default_enabled": p.get("default_enabled", False),
+        "default_enabled": config["enabled"] and config["stable_id"] in DEFAULT_SKILL_IDS,
     }
 
 

@@ -50,7 +50,7 @@ def configs(admin, kind):
 
 
 def test_realms_csrf_registration_and_private_resources(client, student, admin, resource):
-    assert client.get("/api/admin/users").status_code in {401, 403}
+    assert client.get("/api/admin/users").status_code == 401
     assert admin.get("/api/v1/agents").status_code == 401
     assert admin.get("/api/v1/agents/" + resource["agent"]["id"]).status_code == 401
     assert (

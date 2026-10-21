@@ -22,6 +22,7 @@ import {
 } from "lucide-vue-next";
 import { adminApi, type Config, type Page } from "../lib/admin";
 import { ApiError } from "../lib/api";
+import { safeErrorReason } from "../lib/safe-errors";
 import { useAdmin } from "../stores/admin";
 import AdminConfigForm from "../components/AdminConfigForm.vue";
 const route = useRoute();
@@ -82,6 +83,7 @@ const editorKey = ref(0);
 const saving = ref(false);
 const testing = ref(false);
 const editorError = ref("");
+const editorFields = ref<Record<string, string>>({});
 const testResult = ref("");
 const selectedTask = ref<any>(null);
 const taskCalls = ref<any[]>([]);
@@ -295,12 +297,21 @@ function openEditor(row: Config | null) {
   editing.value = row;
   editorKey.value++;
   editorError.value = "";
+  editorFields.value = {};
   testResult.value = "";
   editorOpen.value = true;
+}
+function captureFieldErrors(e: unknown) {
+  if (!(e instanceof ApiError) || !Array.isArray(e.details.field_errors)) return;
+  editorFields.value = Object.fromEntries(
+    e.details.field_errors.filter((item: any) => typeof item.field === "string" && typeof item.message === "string")
+      .map((item: any) => [item.field, item.message]),
+  );
 }
 async function saveConfig(body: Record<string, unknown>) {
   saving.value = true;
   editorError.value = "";
+  editorFields.value = {};
   try {
     await adminApi(
       `/configs/${configKind.value}${editing.value ? "/" + editing.value.id : ""}`,
@@ -313,6 +324,7 @@ async function saveConfig(body: Record<string, unknown>) {
     await load(currentCursor.value);
   } catch (e) {
     editorError.value = message(e);
+    captureFieldErrors(e);
   } finally {
     saving.value = false;
   }
@@ -321,6 +333,7 @@ async function testConfig(draft: Record<string, unknown>) {
   testing.value = true;
   testResult.value = "";
   editorError.value = "";
+  editorFields.value = {};
   try {
     const result = await adminApi("/config-tests", "POST", {
       kind: configKind.value,
@@ -335,6 +348,7 @@ async function testConfig(draft: Record<string, unknown>) {
     testResult.value = `${result.message}（${result.elapsed_ms} ms）`;
   } catch (e) {
     editorError.value = message(e);
+    captureFieldErrors(e);
   } finally {
     testing.value = false;
   }
@@ -504,7 +518,7 @@ const ordinaryList = computed(() =>
       <header class="admin-topbar">
         <span>管理端 / {{ title }}</span>
         <div>
-          <span class="admin-version">v0.0.1</span
+          <span class="admin-version">v0.0.2</span
           ><button
             class="icon"
             :aria-label="dark ? '切换明亮主题' : '切换暗色主题'"
@@ -900,7 +914,7 @@ const ordinaryList = computed(() =>
                         >{{ stateNames[row.result] }}</span
                       >
                     </td>
-                    <td>{{ row.safe_error_code ?? "—" }}</td></template
+                    <td>{{ safeErrorReason(row.safe_error_code) }}<small>{{ row.safe_error_code }}</small></td></template
                   >
                   <template v-else
                     ><td class="admin-id" :title="row.task_id">
@@ -921,6 +935,7 @@ const ordinaryList = computed(() =>
                       <span class="admin-badge" :class="row.status">{{
                         stateNames[row.status]
                       }}</span>
+                      <small v-if="row.safe_error_code">{{ safeErrorReason(row.safe_error_code) }}（{{ row.safe_error_code }}）</small>
                     </td>
                     <td>{{ date(row.accepted_at) }}</td>
                     <td>{{ duration(row.duration_ms) }}</td>
@@ -964,6 +979,7 @@ const ordinaryList = computed(() =>
       :testing="testing"
       :test-result="testResult"
       :error="editorError"
+      :field-errors="editorFields"
       @save="saveConfig"
       @test="testConfig"
       @close="
@@ -1032,6 +1048,8 @@ const ordinaryList = computed(() =>
           </dd>
           <dt>安全错误码</dt>
           <dd>{{ selectedTask.safe_error_code ?? "—" }}</dd>
+          <dt>失败原因</dt>
+          <dd>{{ safeErrorReason(selectedTask.safe_error_code) }}</dd>
         </dl>
         <h3>实际调用尝试</h3>
         <div class="admin-table-scroll">
@@ -1061,7 +1079,7 @@ const ordinaryList = computed(() =>
                   <span class="admin-badge" :class="call.status">{{
                     stateNames[call.status]
                   }}</span
-                  ><small>{{ call.safe_error_code }}</small>
+                  ><small v-if="call.safe_error_code">{{ safeErrorReason(call.safe_error_code) }}（{{ call.safe_error_code }}）</small>
                 </td>
                 <td>{{ date(call.started_at) }}</td>
                 <td>{{ duration(call.duration_ms) }}</td>

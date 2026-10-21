@@ -176,8 +176,15 @@ class PlanTask(Input):
     id: UUID
     title: str = Field(min_length=1)
     estimated_minutes: int = Field(gt=0, strict=True)
-    resource_source_ids: list[UUID]
+    resource_source_ids: list[UUID] = Field(json_schema_extra={"uniqueItems": True})
     exercise_suggestions: list[str]
+
+    @field_validator("resource_source_ids")
+    @classmethod
+    def unique_sources(cls, values):
+        if len(values) != len(set(values)):
+            raise ValueError("同一任务的来源标识不能重复")
+        return values
 
 
 class PlanStage(Input):

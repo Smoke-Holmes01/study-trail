@@ -46,7 +46,7 @@ async def lifespan(app):
         pass
 
 
-app = FastAPI(title="学迹 Study Trail", version="0.0.1", lifespan=lifespan)
+app = FastAPI(title="学迹 Study Trail", version="0.0.2", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 
@@ -334,7 +334,9 @@ def capability_selections(data, defaults=False):
             continue
         ids = data[field]
         if ids is None and defaults:
-            ids = [k for k, v in catalog.items() if v.get("default_enabled") and v.get("enabled", True)]
+            ids = [k for k, v in catalog.items() if v.get("enabled", True) and (
+                k in skills.DEFAULT_SKILL_IDS if field == "skill_ids" else v.get("default_enabled")
+            )]
         if ids is None or len(set(ids)) != len(ids):
             raise c.Problem("VALIDATION_ERROR", "MCP 和技能选择不能为空值或重复", 422)
         if any(ident not in catalog or not catalog[ident].get("enabled", True) for ident in ids):

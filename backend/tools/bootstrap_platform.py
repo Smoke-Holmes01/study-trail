@@ -19,7 +19,7 @@ from cryptography.fernet import Fernet
 from dotenv import dotenv_values
 
 from study_trail import core, db
-from study_trail.bootstrap import initialize
+from study_trail.bootstrap import initialize, refresh_builtin_guide
 from study_trail.config import ENV_FILE, settings
 
 
@@ -47,6 +47,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--admin-login", default=os.environ.get("ADMIN_LOGIN"))
     parser.add_argument("--generate-admin", action="store_true")
+    parser.add_argument("--refresh-guide", action="store_true", help="Explicitly restore the release guide; preserve its status and old revisions")
     args = parser.parse_args()
     ensure_key()
     account = args.admin_login
@@ -82,6 +83,10 @@ def main():
                 password_hash=core.password_hash.hash(password),
                 role="admin",
             )
+        if args.refresh_guide:
+            if not existing:
+                raise RuntimeError("--refresh-guide requires --admin-login identifying an administrator")
+            refresh_builtin_guide(conn, existing["id"])
         initialize(conn, actor=existing["id"] if existing else None)
     if password and args.generate_admin:
         target = Path(__file__).parents[2] / ".local/admin-bootstrap.json"

@@ -356,7 +356,7 @@ def edit(kind: str, ident: UUID, body: dict, request: Request, ctx=D):
         ):
             p.invalid("名称或说明不合法")
         old = db.one(ctx[0], db.config_revisions, row["current_revision_id"])
-        new_payload = p.validate(kind, body.get("payload", old["payload"]), row["purpose"])
+        new_payload = p.validate(kind, body.get("payload", old["payload"]), row["purpose"], row["stable_id"])
         if kind == "model" and new_payload.get("model_kind") != old["payload"]["model_kind"]:
             p.invalid("已有模型不能更改用途")
         p.revision(ctx[0], row, new_payload, body.get("secret_updates"), ctx[1]["id"])

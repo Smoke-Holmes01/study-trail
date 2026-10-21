@@ -66,6 +66,20 @@ test("independent admin login, complete navigation, configuration, limits, priva
   await page.getByLabel("指令正文").fill("使用新的例子解释学习问题。");
   await page.getByRole("button", { name: "保存配置" }).click();
   await expect(skill).toContainText("v2");
+  await page.getByRole("link", { name: "MCP 服务", exact: true }).click();
+  await page.getByRole("button", { name: "新建服务" }).click();
+  await page.getByLabel("稳定标识").fill("schema-check-" + Date.now());
+  await page.getByLabel("名称", { exact: true }).fill("参数约束检查");
+  await page.getByLabel("服务地址", { exact: true }).fill("https://example.invalid/mcp");
+  await page.getByLabel("工具白名单", { exact: false }).fill("lookup");
+  await page.getByText("工具参数约束", { exact: true }).click();
+  await page.getByLabel("工具参数约束JSON", { exact: true }).fill("null");
+  await page.getByRole("button", { name: "保存配置" }).click();
+  await expect(page.getByText("工具参数约束必须为有效的JSON对象。", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("工具参数约束JSON", { exact: true })).toHaveValue("null");
+  await page.getByLabel("工具参数约束JSON", { exact: true }).fill("{}");
+  await page.getByRole("button", { name: "保存配置" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("link", { name: "模型接口", exact: true }).click();
   await page
     .getByRole("row")

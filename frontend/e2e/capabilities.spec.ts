@@ -40,7 +40,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await expect(
     dialog.getByRole("switch", { name: "启用 Exa 网络搜索" }),
   ).toHaveAttribute("aria-checked", "true");
-  await dialog.getByRole("switch").click();
+  await dialog.getByRole("switch", { name: "启用 Exa 网络搜索", exact: true }).click();
   await dialog.getByRole("tab", { name: "技能", exact: true }).click();
   await dialog
     .getByRole("switch", { name: "启用 practice", exact: true })

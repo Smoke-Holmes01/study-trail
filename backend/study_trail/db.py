@@ -413,7 +413,7 @@ for _name in ("platform_configs", "config_revisions", "credential_versions", "pl
               "metric_coverage", "migration_imports"):
     globals()[_name] = metadata.tables[_name]
 for _table in (files, document_chunks):
-    _table.append_column(col("index_fingerprint", sa.String(64), nullable=True))
+    _table.append_column(col("index_fingerprint", sa.String(64), nullable=_table is files))
 
 for t in metadata.tables.values():
     for field in t.c:

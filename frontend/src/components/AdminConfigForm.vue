@@ -8,6 +8,7 @@ const props = defineProps<{
   testing: boolean;
   testResult: string;
   error: string;
+  fieldErrors?: Record<string, string>;
 }>();
 const emit = defineEmits<{
   save: [body: Record<string, unknown>];
@@ -55,6 +56,7 @@ const form = reactive({
   secret_slots: "{}",
 });
 const localError = ref("");
+const schemaError = ref("");
 const purposes: Record<string, string> = {
   intent: "意图识别",
   coverage: "资料覆盖判断",
@@ -111,7 +113,7 @@ function value() {
       body: form.body,
       description: form.description,
       content_version: String((original?.revision_no ?? 0) + 1),
-      default_enabled: form.default_enabled,
+      default_enabled: ["explain", "study-plan", "practice"].includes(form.stable_id),
     };
   else {
     p = {
@@ -122,7 +124,7 @@ function value() {
         .filter(Boolean),
       timeout_seconds: form.timeout_seconds,
       default_enabled: form.default_enabled,
-      parameter_schemas: JSON.parse(form.schemas),
+      parameter_schemas: parseSchemas(),
     };
     if (form.transport === "streamable_http")
       Object.assign(p, {
@@ -154,6 +156,7 @@ function value() {
 }
 function submit(test = false) {
   localError.value = "";
+  schemaError.value = "";
   try {
     const body = value();
     if (test)
@@ -166,6 +169,16 @@ function submit(test = false) {
     else emit("save", body);
   } catch {
     localError.value = "请检查连接字段或参数约束的JSON格式。";
+  }
+}
+function parseSchemas() {
+  try {
+    const result = JSON.parse(form.schemas);
+    if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error();
+    return result;
+  } catch {
+    schemaError.value = "工具参数约束必须为有效的JSON对象。";
+    throw new Error("invalid parameter schemas");
   }
 }
 </script>
@@ -389,14 +402,17 @@ function submit(test = false) {
                 }}</small
               ></label
             >
-            <details class="span-2">
+            <details class="span-2" :open="!!(schemaError || fieldErrors?.['payload.parameter_schemas'])">
               <summary>工具参数约束</summary>
               <textarea
                 v-model="form.schemas"
                 rows="5"
                 aria-label="工具参数约束JSON"
+                :aria-invalid="!!(schemaError || fieldErrors?.['payload.parameter_schemas'])"
+                aria-describedby="parameter-schema-error"
                 spellcheck="false"
               />
+              <p v-if="schemaError || fieldErrors?.['payload.parameter_schemas']" id="parameter-schema-error" class="admin-error" role="alert">{{ schemaError || fieldErrors?.['payload.parameter_schemas'] }}</p>
             </details>
             <label class="admin-check span-2"
               ><input

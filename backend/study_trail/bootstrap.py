@@ -11,6 +11,34 @@ from . import platform as p
 from .config import settings
 
 
+def refresh_builtin_guide(conn, actor):
+    """Explicit release action; normal initialization never overwrites platform edits."""
+    from .admin import audit
+    user = db.one(conn, db.users, actor)
+    if not user or user["role"] != "admin":
+        raise RuntimeError("An administrator identity is required to refresh the built-in guide.")
+    p.lock(conn)
+    skill = skills.file_catalog()["study-trail-guide"]
+    row = conn.execute(sa.select(db.platform_configs).where(
+        db.platform_configs.c.kind == "skill", db.platform_configs.c.stable_id == "study-trail-guide"
+    )).mappings().first()
+    if not row:
+        return
+    payload = {
+        "body": skill["body"], "description": skill["description"],
+        "content_version": skill["version"], "default_enabled": False,
+    }
+    current = db.one(conn, db.config_revisions, row["current_revision_id"])
+    if current["payload"] != payload:
+        current = p.revision(conn, row, payload, None, actor)
+        audit(conn, actor, "builtin_guide_refresh", "skill", row["id"])
+    source = dict(stable_id=skill["id"], name=skill["name"], enabled=True,
+                  description=skill["description"][:500], payload=payload)
+    conn.execute(db.migration_imports.update().where(
+        db.migration_imports.c.source_key == "skill:study-trail-guide"
+    ).values(source_sha256=p.digest(source), revision_id=current["id"]))
+
+
 def initialize(conn, actor=None, *, test=False):
     p.lock(conn)
     cfg = settings()

@@ -7,6 +7,7 @@ import yaml
 from .config import IDENTIFIER, settings
 
 log = logging.getLogger(__name__)
+DEFAULT_SKILL_IDS = frozenset({"explain", "study-plan", "practice"})
 
 
 def file_catalog():
@@ -38,7 +39,7 @@ def file_catalog():
                 "description": description.strip(),
                 "body": body,
                 "version": hashlib.sha256(text.encode()).hexdigest(),
-                "default_enabled": ident in {"explain", "study-plan", "practice"},
+                "default_enabled": ident in DEFAULT_SKILL_IDS,
             }
         except (OSError, ValueError, yaml.YAMLError):
             log.warning("invalid skill directory=%s", path.parent.name)

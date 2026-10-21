@@ -30,12 +30,14 @@ subprocess.run(
     [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=Path(__file__).parents[1], env=env, check=True
 )
 code = """from study_trail import db, core
-from study_trail.bootstrap import initialize
+from study_trail.bootstrap import initialize, refresh_builtin_guide
 import sqlalchemy as sa
 with db.engine.begin() as conn:
+    actor=conn.scalar(sa.select(db.users.c.id).where(db.users.c.login_normalized=='e2e_admin'))
+    if not actor:
+        actor=db.insert(conn,db.users,login='e2e_admin',login_normalized='e2e_admin',display_name='测试管理员',role='admin',password_hash=core.password_hash.hash('e2e-admin-password'))['id']
+    refresh_builtin_guide(conn,actor)
     initialize(conn,test=True)
-    if not conn.execute(sa.select(db.users.c.id).where(db.users.c.login_normalized=='e2e_admin')).first():
-        db.insert(conn,db.users,login='e2e_admin',login_normalized='e2e_admin',display_name='测试管理员',role='admin',password_hash=core.password_hash.hash('e2e-admin-password'))
 """
 subprocess.run([sys.executable, "-c", code], env=env, cwd=Path(__file__).parents[1], check=True)
 # The environment file is local-only and contains a URL credential. Do not print it.

@@ -14,6 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 import sqlalchemy as sa
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from study_trail import db
 from tools.rehearse_upgrade import ROOT, snapshot, storage_manifest
@@ -51,7 +53,7 @@ def main():
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"], env=env, cwd=ROOT / "backend", check=True
     )
-    command = [sys.executable, "tools/bootstrap_platform.py", "--admin-login", args.admin_login]
+    command = [sys.executable, "tools/bootstrap_platform.py", "--admin-login", args.admin_login, "--refresh-guide"]
     if args.generate_admin:
         command.append("--generate-admin")
     subprocess.run(command, env=env, cwd=ROOT / "backend", check=True)
@@ -62,7 +64,7 @@ def main():
     if after != report["original_data"]:
         raise RuntimeError("Post-upgrade learning-data verification failed; maintenance remains enabled.")
     result = {
-        "migration": "0005",
+        "migration": ScriptDirectory.from_config(Config(str(ROOT / "backend/alembic.ini"))).get_current_head(),
         "table_count": len(sa.inspect(db.engine).get_table_names()) - 1,
         "verified_backup": str(backup),
         "original_learning_data_preserved": True,
