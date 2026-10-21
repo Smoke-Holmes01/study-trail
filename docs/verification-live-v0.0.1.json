@@ -1,0 +1,75 @@
+{
+  "physical_attempts": 16,
+  "maximum": 30,
+  "results": [
+    {
+      "scenario": "真实生成与流式保存",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实文件嵌入发布",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实RAG嵌入查询与重排",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实结构化学习计划保存",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实提示词辅助",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实MCP工具发现与调用",
+      "status": "succeeded",
+      "safe_error_code": null
+    }
+  ],
+  "tasks": [
+    {
+      "scenario": "真实生成与流式保存",
+      "task_id": "7fa65cc9-2a66-495b-b337-156fb61bc669",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实文件嵌入发布",
+      "task_id": "ecafe572-4ee2-498f-b817-91e7690f0f7b",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实RAG嵌入查询与重排",
+      "task_id": "08a9e9b9-f68f-4403-a260-47ab9d4aa318",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实结构化学习计划保存",
+      "task_id": "aecbdb33-c4ee-4281-8cd2-8161f4ba6109",
+      "status": "succeeded",
+      "safe_error_code": null
+    },
+    {
+      "scenario": "真实提示词辅助",
+      "task_id": "1bc9b5d3-0bd0-4d43-8ba8-4085c35ab895",
+      "status": "succeeded",
+      "safe_error_code": null
+    }
+  ],
+  "attempts_by_model_kind": {
+    "embedding": 3,
+    "generative": 10,
+    "rerank": 2,
+    "None": 1
+  },
+  "finished_at": "2026-10-21T04:04:22.752915+00:00"
+}
