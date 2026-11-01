@@ -48,7 +48,7 @@ test("account, agent wizard, knowledge files, themes, keyboard and desktop layou
     "background-color",
     "rgb(255, 255, 255)",
   );
-  await page.screenshot({ path: "../.local/screenshots/agents-light.png" });
+  await page.screenshot({ path: "../.local/v004/screenshots/agents-light.png" });
   await page.getByRole("link", { name: "知识库", exact: true }).click();
   await page
     .getByRole("button", { name: "新建知识库", exact: true })
@@ -76,7 +76,7 @@ test("account, agent wizard, knowledge files, themes, keyboard and desktop layou
   await page.getByRole("button", { name: "预览", exact: true }).click();
   await expect(page.locator(".document-preview")).toContainText("矩阵维度");
   await page.keyboard.press("Escape");
-  await page.screenshot({ path: "../.local/screenshots/knowledge-light.png" });
+  await page.screenshot({ path: "../.local/v004/screenshots/knowledge-light.png" });
   await page.setViewportSize({ width: 1024, height: 768 });
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
@@ -90,7 +90,7 @@ test("account, agent wizard, knowledge files, themes, keyboard and desktop layou
     "rgb(45, 51, 46)",
   );
   await page.screenshot({
-    path: "../.local/screenshots/knowledge-dark-1024.png",
+    path: "../.local/v004/screenshots/knowledge-dark-1024.png",
   });
   expect(errors).toEqual([]);
 });
@@ -160,7 +160,7 @@ test("real chat keeps one request across offline/reload and saves a plan only af
   await expect(page.locator(".plan-stage")).toHaveCount(2);
   await page.getByRole("button", { name: "回到对话修改" }).click();
   await expect(page.locator(".target-tag")).toContainText("修改目标");
-  await page.screenshot({ path: "../.local/screenshots/chat-plan-light.png" });
+  await page.screenshot({ path: "../.local/v004/screenshots/chat-plan-light.png" });
   await composer.fill("请写一段详细的向量学习解释，暂时不要修改计划。");
   await composer.press("Enter");
   await page.getByLabel("停止生成").click();

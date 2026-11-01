@@ -316,7 +316,7 @@ def configs(
         clauses.append(
             db.platform_configs.c.current_revision_id.in_(
                 sa.select(db.config_revisions.c.id).where(
-                    db.config_revisions.c.payload["model_kind"].astext == model_kind
+                    db.config_revisions.c.payload["model_kind"].as_string() == model_kind
                 )
             )
         )
@@ -429,8 +429,8 @@ def delete_config(kind: str, ident: UUID, body: ConfigDelete, request: Request, 
             raise c.Problem("CONFIG_IN_USE", "此配置仍用于生效用途，请先切换替代配置后删除。", 409)
         used = {
             "model": db.agents.c.model_id == row["stable_id"],
-            "mcp": db.agents.c.mcp_server_ids.contains([row["stable_id"]]),
-            "skill": db.agents.c.skill_ids.contains([row["stable_id"]]),
+            "mcp": sa.func.JSON_CONTAINS(db.agents.c.mcp_server_ids, sa.literal(json.dumps(row["stable_id"]))),
+            "skill": sa.func.JSON_CONTAINS(db.agents.c.skill_ids, sa.literal(json.dumps(row["stable_id"]))),
         }.get(kind)
         if used is not None and ctx[0].scalar(sa.select(db.agents.c.id).where(used).limit(1)):
             raise c.Problem("CONFIG_IN_USE", "此配置仍被智能体选择，请先解除关联或更换配置后删除。", 409)
@@ -566,7 +566,7 @@ async def config_test(body: dict, request: Request, ctx=D):
                     runtime["headers"][slot[7:]] = secret
                 else:
                     p.invalid("MCP凭据槽须以env.或header.开头")
-    # The advisory idempotency lock remains held through the bounded probe.
+    # The runtime row idempotency lock remains held through the bounded probe.
     reservation = write(ctx[0], ctx[1], request, body, lambda: ({"pending": True}, 202), kind, ident)
     if not json.loads(reservation.body)["data"].get("pending"):
         return reservation

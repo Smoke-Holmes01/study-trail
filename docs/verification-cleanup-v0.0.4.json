@@ -1,0 +1,37 @@
+{
+  "version": "0.0.4",
+  "date": "2026-11-01",
+  "archived_files": 55,
+  "archive_hashes_verified": true,
+  "source_copies_removed": true,
+  "contract_equal": true,
+  "tables": 31,
+  "paths": 67,
+  "operations": 86,
+  "migration": "mysql_0001",
+  "backend_passed": 117,
+  "backend_initial_passed": 114,
+  "backend_initial_failed": 3,
+  "backend_corrected_rerun_passed": 3,
+  "frontend_passed": 32,
+  "browser_passed": 11,
+  "types_and_build_passed": true,
+  "alembic_check_passed": true,
+  "restart_smoke": [
+    {
+      "name": "user",
+      "status": 200,
+      "password_form": true,
+      "page_errors": []
+    },
+    {
+      "name": "admin",
+      "status": 200,
+      "password_form": true,
+      "page_errors": []
+    }
+  ],
+  "paid_model_calls": 0,
+  "production_migrations": 0,
+  "production_guide_refreshed": false
+}

@@ -1,25 +1,36 @@
-"""Create/migrate an isolated test database, never reset the development database."""
-
+"""Create isolated MySQL regression/E2E databases; never reset the daily database."""
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-import sqlalchemy as sa
-
 sys.path.insert(0, str(Path(__file__).parents[1]))
-from study_trail.config import settings
+import sqlalchemy as sa
+from dotenv import dotenv_values
 
-url = sa.engine.make_url(settings().database_url)
-if url.database != "study_trail":
-    raise RuntimeError("Unexpected development database")
-admin = sa.create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
-with admin.connect() as conn:
-    if not conn.execute(sa.text("SELECT 1 FROM pg_database WHERE datname='study_trail_test'")).scalar():
-        conn.exec_driver_sql("CREATE DATABASE study_trail_test")
-env = os.environ.copy()
-env["DATABASE_URL"] = url.set(database="study_trail_test").render_as_string(hide_password=False)
-subprocess.run(
-    [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=Path(__file__).parents[1], env=env, check=True
-)
-print("Isolated test database ready.")
+from study_trail.config import settings
+from tools.local_runtime import LOCAL
+
+
+def prepare(name="study_trail_test"):
+    if name not in {"study_trail_test", "study_trail_e2e"}:
+        raise RuntimeError("Only explicit isolated database names are allowed")
+    url = sa.engine.make_url(settings().database_url)
+    if url.get_backend_name() != "mysql" or url.host != "127.0.0.1":
+        raise RuntimeError("Expected local MySQL deployment")
+    infra = dotenv_values(LOCAL / "infra.env")
+    admin = sa.create_engine(url.set(username="root", password=infra["MYSQL_ROOT_PASSWORD"], database=None), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.exec_driver_sql(f"CREATE DATABASE IF NOT EXISTS `{name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin")
+        conn.exec_driver_sql(f"GRANT ALL PRIVILEGES ON `{name}`.* TO 'study_trail'@'%%'")
+    admin.dispose()
+    env = {**os.environ, "DATABASE_URL": url.set(database=name).render_as_string(hide_password=False),
+           "CHROMA_COLLECTION": name + "_chunks", "PYTHONUTF8": "1"}
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=Path(__file__).parents[1], env=env, check=True)
+    subprocess.run([sys.executable, "tools/vector_index.py", "init", "--apply"], cwd=Path(__file__).parents[1], env=env, check=True)
+    return env
+
+
+if __name__ == "__main__":
+    prepare()
+    print("Isolated MySQL/Chroma test environment ready.")

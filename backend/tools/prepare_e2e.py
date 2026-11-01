@@ -11,18 +11,16 @@ import sqlalchemy as sa
 
 from study_trail.config import settings
 
-source = sa.engine.make_url(settings().database_url)
+from tools.bootstrap_test_db import prepare
+prepared = prepare("study_trail_e2e")
+source = sa.engine.make_url(prepared["DATABASE_URL"])
 name = "study_trail_e2e"
-engine = sa.create_engine(source.set(database="postgres"), isolation_level="AUTOCOMMIT")
-with engine.connect() as conn:
-    if not conn.execute(sa.text("SELECT 1 FROM pg_database WHERE datname=:name"), {"name": name}).scalar():
-        conn.exec_driver_sql("CREATE DATABASE study_trail_e2e")
 env = {
-    **os.environ,
+    **prepared,
     "DATABASE_URL": source.set(database=name).render_as_string(hide_password=False),
     "PLATFORM_KEYS": json.dumps({"test-v1": "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISEhISE="}),
     "PLATFORM_KEY_ID": "test-v1",
-    "STORAGE_ROOT": str(Path(__file__).parents[2] / ".local/e2e-storage"),
+    "STORAGE_ROOT": str(Path(__file__).parents[2] / ".local/v004/e2e-storage"),
     "PYTHONUTF8": "1",
     "ALLOWED_ORIGINS": '["http://127.0.0.1:5174"]',
 }
@@ -43,13 +41,14 @@ with db.engine.begin() as conn:
 """
 subprocess.run([sys.executable, "-c", code], env=env, cwd=Path(__file__).parents[1], check=True)
 # The environment file is local-only and contains a URL credential. Do not print it.
-target = Path(__file__).parents[2] / ".local/e2e-environment.json"
+target = Path(__file__).parents[2] / ".local/v004/e2e-environment.json"
 target.write_text(
     json.dumps(
         {
             key: env[key]
             for key in (
                 "DATABASE_URL",
+                "CHROMA_COLLECTION",
                 "PLATFORM_KEYS",
                 "PLATFORM_KEY_ID",
                 "STORAGE_ROOT",

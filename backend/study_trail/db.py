@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMBLOB, BINARY
+from .mysql_types import JSON, UUID, UTCDateTime, UUIDList
 
 from .config import settings
 
@@ -22,8 +22,8 @@ def table(name, *cols, owner=True, **kw):
             sa.UniqueConstraint("id", "owner_id"),
         ]
     common += [
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, default=now),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, default=now, onupdate=now),
+        sa.Column("created_at", UTCDateTime(), nullable=False, default=now),
+        sa.Column("updated_at", UTCDateTime(), nullable=False, default=now, onupdate=now),
     ]
     return sa.Table(name, metadata, *common, *cols, **kw)
 
@@ -54,10 +54,10 @@ users = table(
     col("auth_version", sa.Integer, default=1),
     col("role", sa.String(8), default="user"),
     col("enabled", sa.Boolean, default=True),
-    col("last_login_at", sa.DateTime(timezone=True), nullable=True),
+    col("last_login_at", UTCDateTime(), nullable=True),
     sa.CheckConstraint("role IN ('user','admin')"),
     sa.CheckConstraint("theme IN ('light','dark')"),
-    sa.CheckConstraint("login_normalized ~ '^[a-z0-9_]{3,32}$'"),
+    sa.CheckConstraint("REGEXP_LIKE(login_normalized, '^[a-z0-9_]{3,32}$', 'c')"),
     owner=False,
 )
 sessions = table(
@@ -66,9 +66,9 @@ sessions = table(
     sa.CheckConstraint("realm IN ('user','admin')"),    col("token_hash", sa.LargeBinary, unique=True),
     col("csrf_token", sa.String(64)),
     col("auth_version", sa.Integer),
-    col("expires_at", sa.DateTime(timezone=True)),
-    col("revoked_at", sa.DateTime(timezone=True), nullable=True),
-    col("last_seen_at", sa.DateTime(timezone=True), default=now),
+    col("expires_at", UTCDateTime()),
+    col("revoked_at", UTCDateTime(), nullable=True),
+    col("last_seen_at", UTCDateTime(), default=now),
 )
 agents = table(
     "agents",
@@ -77,8 +77,8 @@ agents = table(
     col("system_prompt"),
     col("model_id", sa.String(200)),
     col("config_version", sa.Integer, default=1),
-    col("mcp_server_ids", JSONB, default=list),
-    col("skill_ids", JSONB, default=list),
+    col("mcp_server_ids", JSON, default=list),
+    col("skill_ids", JSON, default=list),
 )
 knowledge_bases = table("knowledge_bases", col("name", sa.String(50)))
 agent_knowledge_bases = sa.Table(
@@ -87,7 +87,7 @@ agent_knowledge_bases = sa.Table(
     col("agent_id", UUID(as_uuid=True)),
     col("knowledge_base_id", UUID(as_uuid=True)),
     col("owner_id", UUID(as_uuid=True)),
-    col("created_at", sa.DateTime(timezone=True), default=now),
+    col("created_at", UTCDateTime(), default=now),
     sa.PrimaryKeyConstraint("agent_id", "knowledge_base_id"),
     parent("agents", "agent_id"),
     parent("knowledge_bases", "knowledge_base_id"),
@@ -98,7 +98,7 @@ conversations = table(
     col("name", sa.String(50), default="新对话"),
     col("next_sequence_no", sa.BigInteger, default=1),
     col("has_images", sa.Boolean, default=False),
-    col("last_accessed_at", sa.DateTime(timezone=True), nullable=True),
+    col("last_accessed_at", UTCDateTime(), nullable=True),
     parent("agents", "agent_id"),
     sa.UniqueConstraint("id", "owner_id", "agent_id"),
 )
@@ -110,7 +110,7 @@ messages = table(
     col("role", sa.String(16)),
     col("origin", sa.String(20)),
     col("content_text", default=""),
-    col("skill", JSONB, nullable=True),
+    col("skill", JSON, nullable=True),
     col("user_message_id", UUID(as_uuid=True), nullable=True, fk="messages.id", delete="CASCADE"),
     col("task_id", UUID(as_uuid=True), nullable=True, fk="tasks.id", delete="SET NULL", unique=True),
     col("response_status", sa.String(16), nullable=True),
@@ -132,7 +132,7 @@ attachments = table(
     col("width", sa.Integer),
     col("height", sa.Integer),
     col("sha256", sa.LargeBinary),
-    col("expires_at", sa.DateTime(timezone=True), nullable=True),
+    col("expires_at", UTCDateTime(), nullable=True),
     parent("conversations", "conversation_id", "agent_id"),
     sa.UniqueConstraint("id", "owner_id", "agent_id", "conversation_id"),
     sa.CheckConstraint("state IN ('staged','bound')"),
@@ -147,7 +147,7 @@ message_attachments = sa.Table(
     col("agent_id", UUID(as_uuid=True)),
     col("conversation_id", UUID(as_uuid=True)),
     col("position", sa.SmallInteger),
-    col("created_at", sa.DateTime(timezone=True), default=now),
+    col("created_at", UTCDateTime(), default=now),
     sa.PrimaryKeyConstraint("message_id", "attachment_id"),
     sa.UniqueConstraint("message_id", "position"),
     parent("messages", "message_id", "agent_id", "conversation_id"),
@@ -166,9 +166,9 @@ files = table(
     col("status", sa.String(16), default="processing"),
     col("parse_version", sa.Integer, default=1),
     col("text_snapshot", nullable=True),
-    col("text_metadata", JSONB, nullable=True),
+    col("text_metadata", JSON, nullable=True),
     col("embedding_model_id", nullable=True),
-    col("indexed_at", sa.DateTime(timezone=True), nullable=True),
+    col("indexed_at", UTCDateTime(), nullable=True),
     col("error_code", nullable=True),
     col("error_message", nullable=True),
     parent("knowledge_bases", "knowledge_base_id"),
@@ -185,8 +185,7 @@ document_chunks = table(
     col("content_text"),
     col("char_start", sa.BigInteger),
     col("char_end", sa.BigInteger),
-    col("locator", JSONB),
-    col("embedding", Vector(1024)),
+    col("locator", JSON),
     parent("files", "file_id", "knowledge_base_id"),
     sa.UniqueConstraint("file_id", "parse_version", "chunk_index"),
     sa.CheckConstraint("char_start >= 0 AND char_end > char_start"),
@@ -200,15 +199,15 @@ sources = table(
     col("original_file_id", UUID(as_uuid=True), nullable=True),
     col("url_snapshot", nullable=True),
     col("excerpt_snapshot"),
-    col("locator_snapshot", JSONB, nullable=True),
-    col("captured_at", sa.DateTime(timezone=True), default=now),
+    col("locator_snapshot", JSON, nullable=True),
+    col("captured_at", UTCDateTime(), default=now),
     sa.CheckConstraint("kind IN ('file','web')"),
 )
 learning_plans = table(
     "learning_plans",
     col("agent_id", UUID(as_uuid=True)),
     col("name", sa.String(50)),
-    col("content", JSONB),
+    col("content", JSON),
     col("content_version", sa.Integer, default=1),
     col(
         "source_conversation_id", UUID(as_uuid=True), nullable=True, fk="conversations.id", delete="SET NULL"
@@ -224,8 +223,8 @@ message_sources = sa.Table(
     col("source_id", UUID(as_uuid=True)),
     col("owner_id", UUID(as_uuid=True)),
     col("position", sa.Integer),
-    col("citation_spans", JSONB, default=list),
-    col("created_at", sa.DateTime(timezone=True), default=now),
+    col("citation_spans", JSON, default=list),
+    col("created_at", UTCDateTime(), default=now),
     sa.PrimaryKeyConstraint("message_id", "source_id"),
     sa.UniqueConstraint("message_id", "position"),
     parent("messages", "message_id"),
@@ -239,7 +238,7 @@ plan_sources = sa.Table(
     col("owner_id", UUID(as_uuid=True)),
     col("position", sa.Integer),
     col("content_version", sa.Integer),
-    col("created_at", sa.DateTime(timezone=True), default=now),
+    col("created_at", UTCDateTime(), default=now),
     sa.PrimaryKeyConstraint("plan_id", "source_id"),
     sa.UniqueConstraint("plan_id", "position"),
     parent("learning_plans", "plan_id"),
@@ -253,8 +252,8 @@ exercises = table(
     col("position", sa.Integer),
     col("question_text"),
     col("provenance", sa.String(16)),
-    col("source_ids", JSONB, default=list),
-    col("known_answer_snapshot", JSONB, nullable=True),
+    col("source_ids", JSON, default=list),
+    col("known_answer_snapshot", JSON, nullable=True),
     parent("messages", "message_id", "agent_id", "conversation_id"),
     sa.UniqueConstraint("message_id", "position"),
     sa.CheckConstraint("provenance IN ('original','adapted','generated')"),
@@ -275,9 +274,9 @@ tasks = table(
     col("status", sa.String(16), default="queued"),
     col("cancel_requested", sa.Boolean, default=False),
     col("revision", sa.BigInteger, default=1),
-    col("input_snapshot", JSONB, default=dict),
-    col("config_snapshot", JSONB, default=dict),
-    col("result_snapshot", JSONB, default=dict),
+    col("input_snapshot", JSON, default=dict),
+    col("config_snapshot", JSON, default=dict),
+    col("result_snapshot", JSON, default=dict),
     col("phase", default="queued"),
     col("preview_text", default=""),
     col("error_code", nullable=True),
@@ -285,13 +284,13 @@ tasks = table(
     col("lease_owner", nullable=True),
     col("claim_token", UUID(as_uuid=True), nullable=True, unique=True),
     col("timeout_seconds", sa.Integer, default=300),
-    col("queued_at", sa.DateTime(timezone=True), default=now),
-    col("started_at", sa.DateTime(timezone=True), nullable=True),
-    col("deadline_at", sa.DateTime(timezone=True), nullable=True),
-    col("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
-    col("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
-    col("finished_at", sa.DateTime(timezone=True), nullable=True),
-    col("next_attempt_at", sa.DateTime(timezone=True), nullable=True),
+    col("queued_at", UTCDateTime(), default=now),
+    col("started_at", UTCDateTime(), nullable=True),
+    col("deadline_at", UTCDateTime(), nullable=True),
+    col("lease_expires_at", UTCDateTime(), nullable=True),
+    col("heartbeat_at", UTCDateTime(), nullable=True),
+    col("finished_at", UTCDateTime(), nullable=True),
+    col("next_attempt_at", UTCDateTime(), nullable=True),
     sa.CheckConstraint("status IN ('queued','running','succeeded','failed','stopped')"),
     sa.CheckConstraint("attempt_no >= 1"),
 )
@@ -301,7 +300,7 @@ conversation_summaries = table(
     col("conversation_id", UUID(as_uuid=True)),
     col("text"),
     col("through_sequence_no", sa.BigInteger),
-    col("covered_user_message_ids", ARRAY(UUID(as_uuid=True)), default=list),
+    col("covered_user_message_ids", UUIDList(), default=list),
     col("model_id"),
     col("config_version", sa.Integer),
     col("created_by_task_id", UUID(as_uuid=True), nullable=True, fk="tasks.id", delete="SET NULL"),
@@ -315,34 +314,20 @@ idempotency_records = table(
     col("path"),
     col("request_fingerprint", sa.LargeBinary),
     col("response_status", sa.Integer),
-    col("response_snapshot", JSONB),
-    col("resource_refs", JSONB, default=list),
+    col("response_snapshot", JSON),
+    col("resource_refs", JSON, default=list),
     col("resource_kind", nullable=True),
     col("resource_id", UUID(as_uuid=True), nullable=True),
     sa.UniqueConstraint("owner_id", "key"),
 )
 
-sa.Index(
-    "uq_active_chat",
-    tasks.c.conversation_id,
-    unique=True,
-    postgresql_where=sa.and_(tasks.c.kind == "chat", tasks.c.status.in_(["queued", "running"])),
-)
-sa.Index(
-    "uq_message_attempt",
-    tasks.c.user_message_id,
-    tasks.c.attempt_no,
-    unique=True,
-    postgresql_where=tasks.c.user_message_id.is_not(None),
-)
+tasks.append_column(sa.Column("active_conversation", sa.String(32), sa.Computed("CASE WHEN kind = 'chat' AND status IN ('queued','running') THEN conversation_id ELSE NULL END")))
+sa.Index("uq_active_chat", tasks.c.active_conversation, unique=True)
+sa.Index("uq_message_attempt", tasks.c.user_message_id, tasks.c.attempt_no, unique=True)
 sa.Index("ix_tasks_queue", tasks.c.status, tasks.c.next_attempt_at, tasks.c.queued_at)
 sa.Index("ix_tasks_lease", tasks.c.lease_expires_at)
-sa.Index(
-    "ix_recent_conversations",
-    conversations.c.agent_id,
-    sa.func.coalesce(conversations.c.last_accessed_at, conversations.c.created_at).desc(),
-    conversations.c.id.desc(),
-)
+conversations.append_column(sa.Column("recent_at", UTCDateTime(), sa.Computed("COALESCE(last_accessed_at, created_at)")))
+sa.Index("ix_recent_conversations", conversations.c.agent_id, conversations.c.recent_at, conversations.c.id)
 for t in list(metadata.tables.values()):
     if "owner_id" in t.c:
         sa.Index(f"ix_{t.name}_owner", t.c.owner_id)
@@ -350,22 +335,28 @@ for t in list(metadata.tables.values()):
         if c.foreign_keys and c.name != "owner_id":
             sa.Index(f"ix_{t.name}_{c.name}", c)
 
-engine = sa.create_engine(settings().database_url, pool_pre_ping=True, pool_size=8, max_overflow=8)
+engine = sa.create_engine(settings().database_url, pool_pre_ping=True, pool_size=8, max_overflow=8, isolation_level="READ COMMITTED")
+
+
+@sa.event.listens_for(engine, "connect")
+def utc_connection(connection, record):
+    with connection.cursor() as cursor:
+        cursor.execute("SET time_zone = '+00:00'")
 
 # Named database checks supplement API validation, including internal worker writes.
 CHECKS = {
     "users": {
-        "display_name": "length(btrim(display_name)) BETWEEN 1 AND 32",
+        "display_name": "CHAR_LENGTH(TRIM(display_name)) BETWEEN 1 AND 32",
         "auth_version": "auth_version > 0",
     },
-    "sessions": {"token_hash": "octet_length(token_hash) = 32", "csrf": "csrf_token ~ '^[0-9a-f]{64}$'"},
+    "sessions": {"token_hash": "octet_length(token_hash) = 32", "csrf": "REGEXP_LIKE(csrf_token, '^[0-9a-f]{64}$', 'c')"},
     "agents": {
-        "name": "length(btrim(name)) BETWEEN 1 AND 50",
-        "prompt": "length(btrim(system_prompt)) BETWEEN 1 AND 10000",
+        "name": "CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 50",
+        "prompt": "CHAR_LENGTH(TRIM(system_prompt)) BETWEEN 1 AND 10000",
         "version": "config_version > 0",
     },
-    "knowledge_bases": {"name": "length(btrim(name)) BETWEEN 1 AND 50"},
-    "conversations": {"name": "length(btrim(name)) BETWEEN 1 AND 50", "sequence": "next_sequence_no > 0"},
+    "knowledge_bases": {"name": "CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 50"},
+    "conversations": {"name": "CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 50", "sequence": "next_sequence_no > 0"},
     "messages": {
         "sequence": "sequence_no > 0",
         "origin": "origin IN ('user_input','answer_request','assistant')",
@@ -378,24 +369,24 @@ CHECKS = {
     "files": {"version": "parse_version > 0"},
     "document_chunks": {
         "index": "chunk_index >= 0 AND parse_version > 0",
-        "text": "length(btrim(content_text)) > 0",
+        "text": "CHAR_LENGTH(TRIM(content_text)) > 0",
     },
     "sources": {
-        "title": "length(btrim(title_snapshot)) > 0",
-        "url": "(kind = 'file' AND url_snapshot IS NULL) OR (kind = 'web' AND url_snapshot ~ '^https?://')",
+        "title": "CHAR_LENGTH(TRIM(title_snapshot)) > 0",
+        "url": "(kind = 'file' AND url_snapshot IS NULL) OR (kind = 'web' AND REGEXP_LIKE(url_snapshot, '^https?://', 'c'))",
     },
     "exercises": {
         "position": "position >= 0",
-        "question": "length(btrim(question_text)) > 0",
-        "source_array": "jsonb_typeof(source_ids) = 'array'",
+        "question": "CHAR_LENGTH(TRIM(question_text)) > 0",
+        "source_array": "JSON_TYPE(source_ids) = 'ARRAY'",
     },
-    "learning_plans": {"name": "length(btrim(name)) BETWEEN 1 AND 50", "version": "content_version > 0"},
+    "learning_plans": {"name": "CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 50", "version": "content_version > 0"},
     "tasks": {
         "kind": "kind IN ('chat','prompt_generate','prompt_polish','file_process','storage_cleanup')",
         "action": "action IS NULL OR action IN ('plan_create','plan_update','exercise','answer','tutor','feedback','clarify')",
         "revision": "revision > 0 AND timeout_seconds > 0",
     },
-    "conversation_summaries": {"text": "length(btrim(text)) BETWEEN 1 AND 1200"},
+    "conversation_summaries": {"text": "CHAR_LENGTH(TRIM(text)) BETWEEN 1 AND 1200"},
     "message_sources": {"position": "position >= 0"},
     "plan_sources": {"position": "position >= 0 AND content_version > 0"},
 }
@@ -415,32 +406,80 @@ for _name in ("platform_configs", "config_revisions", "credential_versions", "pl
 for _table in (files, document_chunks):
     _table.append_column(col("index_fingerprint", sa.String(64), nullable=_table is files))
 
+runtime_locks = sa.Table("runtime_locks", metadata,
+    sa.Column("scope", sa.String(16), primary_key=True),
+    sa.Column("bucket", sa.SmallInteger, primary_key=True))
+vector_generations = sa.Table("vector_generations", metadata,
+    sa.Column("id", UUID(as_uuid=True), primary_key=True, default=uuid4),
+    sa.Column("owner_id", UUID(as_uuid=True), nullable=False),
+    sa.Column("file_id", UUID(as_uuid=True), nullable=False),
+    sa.Column("knowledge_base_id", UUID(as_uuid=True), nullable=False),
+    sa.Column("task_id", UUID(as_uuid=True)),
+    sa.Column("claim_token", UUID(as_uuid=True)),
+    sa.Column("parse_version", sa.Integer, nullable=False),
+    sa.Column("index_fingerprint", sa.String(64), nullable=False),
+    sa.Column("expected_count", sa.Integer, nullable=False),
+    sa.Column("content_hash", sa.String(64), nullable=False),
+    sa.Column("state", sa.String(12), nullable=False, default="staging"),
+    sa.Column("created_at", UTCDateTime(), nullable=False, default=now),
+    sa.Column("retired_at", UTCDateTime()),
+    sa.Column("next_cleanup_at", UTCDateTime()),
+    sa.Column("cleanup_attempts", sa.Integer, nullable=False, default=0),
+    sa.Column("cleanup_claim", UUID(as_uuid=True)),
+    sa.Column("cleanup_lease_at", UTCDateTime()),
+    sa.Column("last_error", sa.String(80)),
+    sa.CheckConstraint("state IN ('staging','active','retired')", name="ck_vector_generations_state"))
+sa.Index("ix_vector_cleanup", vector_generations.c.state, vector_generations.c.next_cleanup_at)
+files.append_column(sa.Column("active_generation_id", UUID(as_uuid=True), sa.ForeignKey("vector_generations.id", name="fk_files_active_generation")))
+
+# Explicit capacities and collations avoid MySQL TEXT indexes and silent truncation.
+_INDEXED_TEXT = {"storage_key": 255, "event_key": 160, "operation_key": 160,
+                 "metric_key": 80, "source_key": 255, "model_id": 200,
+                 "key_id": 80, "resource_kind": 48, "media_type": 100, "extension": 16,
+                 "safe_error_code": 80, "error_code": 80, "phase": 48,
+                 "lease_owner": 80, "origin": 24, "action": 80, "note_code": 100}
 for t in metadata.tables.values():
+    t.dialect_options["mysql"].update(engine="InnoDB", charset="utf8mb4", collate="utf8mb4_0900_bin")
     for field in t.c:
-        expression = None
-        if field.name == "id":
-            expression = "gen_random_uuid()"
-        elif field.name in {"created_at", "updated_at"}:
-            expression = "now()"
-        elif field.default is not None and field.default.is_scalar:
+        if isinstance(field.type, sa.Text):
+            field.type = sa.String(_INDEXED_TEXT[field.name]) if field.name in _INDEXED_TEXT else LONGTEXT()
+        if isinstance(field.type, sa.LargeBinary):
+            field.type = BINARY(32) if field.name in {"token_hash", "sha256", "request_fingerprint"} else MEDIUMBLOB()
+        if field.name in {"created_at", "updated_at"} and field.computed is None:
+            field.server_default = sa.DefaultClause(sa.text("CURRENT_TIMESTAMP(6)"))
+        elif field.default is not None and field.default.is_scalar and field.computed is None:
             value = field.default.arg
-            expression = (
-                "true"
-                if value is True
-                else "false"
-                if value is False
-                else str(value)
-                if isinstance(value, (int, float))
-                else "'" + str(value).replace("'", "''") + "'"
-            )
-        elif field.default is not None and isinstance(field.type, JSONB):
-            expression = (
-                "'[]'::jsonb" if getattr(field.default.arg, "__name__", "") == "list" else "'{}'::jsonb"
-            )
-        elif field.default is not None and isinstance(field.type, ARRAY):
-            expression = "'{}'::uuid[]"
-        if expression is not None:
+            expression = str(int(value)) if isinstance(value, bool) else str(value) if isinstance(value, (int,float)) else "(" + repr(value) + ")" if isinstance(field.type, LONGTEXT) else "'" + str(value).replace("'", "''") + "'"
             field.server_default = sa.DefaultClause(sa.text(expression))
+        elif isinstance(field.type, (JSON, UUIDList)) and not field.nullable:
+            expression = "(JSON_ARRAY())" if field.default is not None and getattr(field.default.arg, "__name__", "") == "list" else "(JSON_OBJECT())"
+            field.server_default = sa.DefaultClause(sa.text(expression))
+    for constraint in t.constraints:
+        if isinstance(constraint, sa.ForeignKeyConstraint) and not constraint.name:
+            constraint.name = ("fk_" + t.name + "_" + "_".join(c.name for c in constraint.columns))[:64]
+        elif isinstance(constraint, sa.ForeignKeyConstraint) and constraint.name.startswith("fk_") and t.name not in constraint.name:
+            constraint.name = ("fk_" + t.name + "_" + constraint.name[3:])[:64]
+        if isinstance(constraint, sa.CheckConstraint):
+            expr = str(constraint.sqltext)
+            if constraint.name is None:
+                import hashlib
+                constraint.name = "ck_" + t.name + "_" + hashlib.sha256(expr.encode()).hexdigest()[:8]
+
+
+def transaction_lock(conn, scope, bucket=0):
+    row = conn.execute(sa.select(runtime_locks.c.bucket).where(runtime_locks.c.scope == scope, runtime_locks.c.bucket == bucket).with_for_update()).first()
+    if row is None:
+        raise RuntimeError("Missing runtime lock rows; run installation verification")
+
+
+def insert_once(conn, table, values, key):
+    # Do not run no-op UPDATE against immutable event history.
+    try:
+        with conn.begin_nested():
+            conn.execute(table.insert().values(**values))
+    except sa.exc.IntegrityError as exc:
+        if getattr(exc.orig, "args", (None,))[0] != 1062 or not conn.execute(sa.select(table).where(*[table.c[k] == values[k] for k in key])).first():
+            raise
 
 
 def one(conn, t, ident, owner_id=None, lock=False):
@@ -460,8 +499,7 @@ def insert(conn, t, **data):
     if t is document_chunks:
         data.setdefault("index_fingerprint", one(conn, files, data["file_id"])["index_fingerprint"])
     if t is tasks and data.get("kind") != "storage_cleanup":
-        from pathlib import Path
-        if settings().maintenance or (engine.url.database == "study_trail" and (Path(__file__).parents[2] / ".local/maintenance").exists()):
+        if settings().maintenance or (engine.url.database == "study_trail" and (settings().runtime_root / "maintenance").exists()):
             from .core import Problem
             raise Problem("SERVICE_UNAVAILABLE", "平台维护中，暂不受理新任务", 503)
         from .platform import snapshot
@@ -473,14 +511,17 @@ def insert(conn, t, **data):
             from .platform import bound
             bound(conn, "embedding")
             conn.execute(files.update().where(files.c.id == data["file_id"]).values(index_fingerprint=frozen["embedding"]["index_fingerprint"]))
-    row = conn.execute(t.insert().values(**data).returning(t)).mappings().one()
+    data.setdefault("id", uuid4()) if "id" in t.c else None
+    conn.execute(t.insert().values(**data))
+    row = one(conn, t, data["id"])
     from .telemetry import inserted
     inserted(conn, t, row)
     return row
 
 
 def update(conn, t, ident, **data):
-    row = conn.execute(t.update().where(t.c.id == ident).values(**data).returning(t)).mappings().first()
+    result = conn.execute(t.update().where(t.c.id == ident).values(**data))
+    row = one(conn, t, ident) if result.rowcount else None
     if t is tasks and row:
         from .telemetry import task_changed
         task_changed(conn, row)

@@ -2,31 +2,17 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from uuid import uuid4
 
-from sqlalchemy.dialects.postgresql import insert
 
 from . import db
 
 RESOURCE_TABLES = {"users", "agents", "conversations", "knowledge_bases", "files", "learning_plans"}
-verification_budget = ContextVar("verification_budget", default=None)
 
 
 def inserted(conn, table, row):
     if table.name in RESOURCE_TABLES and (table is not db.users or row["role"] == "user"):
-        conn.execute(
-            insert(db.resource_events)
-            .values(
-                event_key=f"{table.name}:{row['id']}:created",
-                owner_id=row.get("owner_id", row["id"]),
-                resource_kind=table.name,
-                resource_id=row["id"],
-                occurred_at=row["created_at"],
-                origin="live",
-            )
-            .on_conflict_do_nothing(index_elements=["event_key"])
-        )
+        db.insert_once(conn, db.resource_events, dict(event_key=f"{table.name}:{row['id']}:created", owner_id=row.get('owner_id', row['id']), resource_kind=table.name, resource_id=row['id'], occurred_at=row['created_at'], origin='live'), ['event_key'])
     if table is db.tasks and row["kind"] != "storage_cleanup":
         file = db.one(conn, db.files, row["file_id"]) if row["file_id"] else None
         conn.execute(
@@ -73,12 +59,6 @@ def task_changed(conn, row):
 
 @asynccontextmanager
 async def attempt(task, category="model", model_kind="generative", config=None, tool_name=None):
-    budget = verification_budget.get()
-    if budget is not None:
-        if budget["used"] >= budget["limit"]:
-            from .core import Problem
-            raise Problem("VERIFICATION_BUDGET_EXHAUSTED", "本轮真实调用额度已用尽", 409)
-        budget["used"] += 1
     config = config or task.get("config_snapshot", {})
     ident = uuid4()
     purpose = task.get("purpose") or (

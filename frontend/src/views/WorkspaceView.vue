@@ -58,6 +58,9 @@ import {
   type UploadResult,
   type Exercise,
 } from "../lib/api";
+import { viewportBounds } from "../lib/viewport";
+import ResourceDrawer from "../components/ResourceDrawer.vue";
+import { useResponsive } from "../composables/useResponsive";
 import Modal from "../components/Modal.vue";
 import AgentCapabilities from "../components/AgentCapabilities.vue";
 import SkillPicker from "../components/SkillPicker.vue";
@@ -70,6 +73,10 @@ const router = useRouter();
 const session = useSession();
 const isKnowledge = computed(() => route.path === "/knowledge-bases");
 const collapsed = ref(false);
+const { compact, phone, touch, keyboard, height } = useResponsive();
+const drawerOpen = ref(false);
+const planDetailOpen = ref(false);
+watch(compact, () => { drawerOpen.value = false; });
 const agentExpanded = ref(true);
 const agents = ref<Agent[]>([]);
 const libraries = ref<KnowledgeBase[]>([]);
@@ -415,6 +422,7 @@ async function newConversation() {
   );
   conversations.value.unshift(result);
   await openConversation(result.id);
+  drawerOpen.value = false;
   await nextTick();
   composer.value?.focus();
 }
@@ -435,6 +443,7 @@ async function newAgentConversation(id: string) {
   conversations.value = await all<Conversation>(`/agents/${id}/conversations`);
   plans.value = await all<Plan>(`/agents/${id}/plans`);
   await openConversation(result.id);
+  drawerOpen.value = false;
   await nextTick();
   composer.value?.focus();
 }
@@ -675,6 +684,7 @@ function keydown(event: KeyboardEvent) {
   if (
     event.key === "Enter" &&
     !event.shiftKey &&
+    ((!compact.value && !touch.value) || event.ctrlKey || event.metaKey) &&
     !event.isComposing &&
     event.keyCode !== 229
   ) {
@@ -947,6 +957,7 @@ async function confirmDelete() {
   }
 }
 async function openPlans() {
+  planDetailOpen.value = false;
   if (!agentId.value) return;
   plans.value = await all<Plan>(`/agents/${agentId.value}/plans`);
   selectedPlanId.value = plans.value[0]?.id ?? "";
@@ -1081,17 +1092,18 @@ function positionSource() {
       return;
     }
   }
-  const width = Math.min(360, innerWidth - 16);
+  const bounds = viewportBounds();
+  const width = Math.min(360, bounds.width - 16);
   const height = Math.min(
     sourcePanel.value?.offsetHeight ?? 320,
-    innerHeight - 16,
+    bounds.height - 16,
   );
   const below = rect.bottom + 8;
-  const top = below + height <= innerHeight - 8 ? below : rect.top - height - 8;
+  const top = below + height <= bounds.top + bounds.height - 8 ? below : rect.top - height - 8;
   sourcePosition.value = {
     width: `${width}px`,
-    left: `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`,
-    top: `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`,
+    left: `${Math.max(bounds.left + 8, Math.min(rect.left, bounds.left + bounds.width - width - 8))}px`,
+    top: `${Math.max(bounds.top + 8, Math.min(top, bounds.top + bounds.height - height - 8))}px`,
   };
 }
 function scheduleSourcePosition() {
@@ -1290,6 +1302,8 @@ onMounted(() => {
   document.addEventListener("keydown", dismissEscape);
   window.addEventListener("scroll", scheduleSourcePosition, true);
   window.addEventListener("resize", scheduleSourcePosition);
+  window.visualViewport?.addEventListener("resize", scheduleSourcePosition);
+  window.visualViewport?.addEventListener("scroll", scheduleSourcePosition);
 });
 watch(
   [
@@ -1307,6 +1321,7 @@ watch(
 );
 watch(modal, (value) => {
   if (value) {
+    drawerOpen.value = false;
     closeMenus();
     closeSource();
   }
@@ -1337,6 +1352,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("keydown", dismissEscape);
   window.removeEventListener("scroll", scheduleSourcePosition, true);
   window.removeEventListener("resize", scheduleSourcePosition);
+  window.visualViewport?.removeEventListener("resize", scheduleSourcePosition);
+  window.visualViewport?.removeEventListener("scroll", scheduleSourcePosition);
   cancelAnimationFrame(sourceFrame);
   unsubscribe?.();
   promptUnsubscribe?.();
@@ -1346,7 +1363,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="workspace" :class="{ collapsed }">
+  <div class="workspace" :class="{ collapsed, compact, phone, 'keyboard-open': keyboard }" :style="{ '--viewport-height': height }">
+    <ResourceDrawer :compact="compact" :open="drawerOpen" @close="drawerOpen = false">
     <nav class="rail" aria-label="主导航">
       <div class="logo-icon" title="学迹 Study Trail">
         <Compass :size="28" />
@@ -1378,7 +1396,7 @@ onBeforeUnmount(() => {
         {{ session.user?.display_name.slice(0, 1) }}
       </div>
     </nav>
-    <aside v-if="!collapsed" class="resources">
+    <aside v-if="compact || !collapsed" class="resources">
       <div class="resource-heading">
         <div>
           <span class="eyebrow">STUDY TRAIL</span>
@@ -1388,7 +1406,7 @@ onBeforeUnmount(() => {
           class="icon-button"
           title="折叠资源栏"
           aria-label="折叠资源栏"
-          @click="collapsed = true"
+          @click="compact ? drawerOpen = false : collapsed = true"
         >
           <PanelLeftClose :size="19" />
         </button>
@@ -1457,7 +1475,7 @@ onBeforeUnmount(() => {
             >
               <button
                 :title="conv.name"
-                @click="guard(() => openConversation(conv.id))"
+                @click="guard(async () => { await openConversation(conv.id); drawerOpen = false; })"
               >
                 <MessageSquare :size="14" /><span>{{ conv.name }}</span>
               </button>
@@ -1508,7 +1526,7 @@ onBeforeUnmount(() => {
         >
           <button
             class="resource-main"
-            @click="guard(() => openLibrary(library.id))"
+            @click="guard(async () => { await openLibrary(library.id); drawerOpen = false; })"
           >
             <span class="resource-icon"><BookOpen :size="18" /></span
             ><span
@@ -1561,15 +1579,21 @@ onBeforeUnmount(() => {
         >
       </div>
     </aside>
+    </ResourceDrawer>
+    <nav v-if="compact && !phone" class="rail" aria-label="主导航">
+      <RouterLink to="/agents" aria-label="智能体" :class="{ selected: !isKnowledge }"><Bot /></RouterLink>
+      <RouterLink to="/knowledge-bases" aria-label="知识库" :class="{ selected: isKnowledge }"><BookOpen /></RouterLink>
+      <div class="rail-spacer" /><button class="icon-button" aria-label="个人设置" @click="openSettings"><Settings /></button>
+    </nav>
     <main class="work-area">
       <header class="work-header">
         <div class="header-title">
           <button
-            v-if="collapsed"
+            v-if="compact || collapsed"
             class="icon-button"
             title="展开资源栏"
             aria-label="展开资源栏"
-            @click="collapsed = false"
+            @click="compact ? drawerOpen = true : collapsed = false"
           >
             <PanelLeftOpen :size="20" /></button
           ><span class="header-icon"
@@ -1858,6 +1882,7 @@ onBeforeUnmount(() => {
                       guard(async () => {
                         await openPlans();
                         selectedPlanId = planMutation(message)!.plan_id;
+                        planDetailOpen = true;
                       })
                     "
                   >
@@ -2013,7 +2038,7 @@ onBeforeUnmount(() => {
                     ? task?.cancel_requested
                       ? "正在停止，等待后台确认…"
                       : task?.progress.label
-                    : "Enter 发送 · Shift + Enter 换行"
+                    : compact || touch ? "点击发送 · Enter 换行" : "Enter 发送 · Shift + Enter 换行"
                 }}</small
                 ><button
                   v-if="generating"
@@ -2106,13 +2131,13 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                   </td>
-                  <td>{{ bytes(file.byte_size) }}</td>
+                  <td data-label="大小">{{ bytes(file.byte_size) }}</td>
                   <td>
                     <span class="badge" :class="file.status">{{
                       statusName(file.status)
                     }}</span>
                   </td>
-                  <td>{{ new Date(file.created_at).toLocaleDateString() }}</td>
+                  <td data-label="上传日期">{{ new Date(file.created_at).toLocaleDateString() }}</td>
                   <td>
                     <div class="file-actions">
                       <button
@@ -2156,6 +2181,11 @@ onBeforeUnmount(() => {
         </section></template
       >
     </main>
+    <nav v-if="phone && !keyboard" class="mobile-tabs" aria-label="底部导航">
+      <RouterLink to="/agents" :class="{ active: !isKnowledge }"><Bot :size="21" />智能体</RouterLink>
+      <RouterLink to="/knowledge-bases" :class="{ active: isKnowledge }"><BookOpen :size="21" />知识库</RouterLink>
+      <button @click="openSettings"><Settings :size="21" />我的</button>
+    </nav>
     <input
       ref="imageInput"
       type="file"
@@ -2497,13 +2527,13 @@ onBeforeUnmount(() => {
           回到对话
         </button>
       </div>
-      <div v-else class="plan-layout">
+      <div v-else class="plan-layout" :class="{ 'show-detail': planDetailOpen }">
         <aside>
           <button
             v-for="p in plans"
             :key="p.id"
             :class="{ active: selectedPlanId === p.id }"
-            @click="selectedPlanId = p.id"
+            @click="selectedPlanId = p.id; planDetailOpen = true"
           >
             <BookOpen :size="17" /><span
               >{{ p.name
@@ -2512,6 +2542,7 @@ onBeforeUnmount(() => {
           </button>
         </aside>
         <section v-if="selectedPlan" class="plan-detail">
+          <button v-if="phone" class="plan-back" @click="planDetailOpen = false">返回计划列表</button>
           <div class="plan-heading">
             <div>
               <span class="eyebrow"

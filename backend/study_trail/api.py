@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from starlette.exceptions import HTTPException
 
 from . import core as c
@@ -46,7 +46,7 @@ async def lifespan(app):
         pass
 
 
-app = FastAPI(title="学迹 Study Trail", version="0.0.3", lifespan=lifespan)
+app = FastAPI(title="学迹 Study Trail", version="0.0.5", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 
@@ -112,6 +112,11 @@ async def integrity(request, exc):
     return await problem(
         request, c.Problem(code, "账号已存在" if code == "LOGIN_TAKEN" else "操作与当前资源状态冲突", 409)
     )
+
+
+@app.exception_handler(OperationalError)
+async def database_busy(request, exc):
+    return await problem(request, c.Problem("SERVICE_UNAVAILABLE", "数据库暂时不可用，请使用原操作标识重试", 503))
 
 
 @app.exception_handler(Exception)
@@ -1291,6 +1296,9 @@ def deletion_route(path, t, operation, impact_id=None):
                 .where(db.agents.c.id.in_(affected))
                 .values(config_version=db.agents.c.config_version + 1)
             )
+        if files:
+            from .vectors import retire
+            retire(conn, file_ids=[item["id"] for item in files])
         for item in [*files, *images]:
             c.cleanup(conn, user["id"], item["storage_key"])
         conn.execute(t.delete().where(t.c.id == ident, t.c.owner_id == user["id"]))

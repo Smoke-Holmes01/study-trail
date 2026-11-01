@@ -38,6 +38,7 @@ def ensure_key():
     if "PLATFORM_KEYS" in values or "PLATFORM_KEYS" in os.environ:
         raise RuntimeError("PLATFORM_KEYS is present but invalid/empty; refusing to overwrite it.")
     key = Fernet.generate_key().decode()
+    ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
     with ENV_FILE.open("a", encoding="utf-8") as stream:
         stream.write("\nPLATFORM_KEY_ID=local-v1\nPLATFORM_KEYS='" + json.dumps({"local-v1": key}) + "'\n")
     settings.cache_clear()
@@ -89,7 +90,8 @@ def main():
             refresh_builtin_guide(conn, existing["id"])
         initialize(conn, actor=existing["id"] if existing else None)
     if password and args.generate_admin:
-        target = Path(__file__).parents[2] / ".local/admin-bootstrap.json"
+        target = settings().runtime_root / "admin-bootstrap.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
         # Exclusive creation prevents accidental overwriting of earlier login instructions.
         with target.open("x", encoding="utf-8") as stream:
             json.dump(
@@ -98,7 +100,8 @@ def main():
                 ensure_ascii=False,
                 indent=2,
             )
-        target.chmod(0o600)
+        from tools.local_runtime import protect
+        protect(target)
         print("Administrator credentials saved locally:", target)
     print("Platform initialization verified; existing configuration was not overwritten.")
 

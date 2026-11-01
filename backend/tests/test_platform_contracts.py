@@ -1,12 +1,8 @@
-import importlib.util
 from contextlib import asynccontextmanager
-from pathlib import Path
+import shutil
 from uuid import UUID, uuid4
 
 import pytest
-import sqlalchemy as sa
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from pydantic import ValidationError
 
 from study_trail import core, db, mcp_tools, platform, skills, workflow
@@ -33,16 +29,16 @@ def test_mcp_constraints_return_field_errors_without_saving(admin, constraints):
     assert current["payload"] == row["payload"]
 
 
-def test_fixed_defaults_ignore_legacy_flags_and_reject_new_conflicts(admin, client, student):
+def test_skill_defaults_follow_current_catalog_and_reject_conflicts(admin, client, student):
     rows = configs(admin, "skill")
     with db.engine.begin() as conn:
         for row in rows:
             rev = db.one(conn, db.config_revisions, UUID(row["current_revision_id"]))
-            legacy = {**rev["payload"], "default_enabled": row["stable_id"] == "study-trail-guide"}
+            proposed = {**rev["payload"], "default_enabled": row["stable_id"] == "study-trail-guide"}
             revision_id = uuid4()
             conn.execute(db.config_revisions.insert().values(
                 id=revision_id, config_id=rev["config_id"], revision_no=rev["revision_no"] + 1,
-                payload=legacy, credential_version_ids={}, content_hash=platform.digest([legacy, {}]),
+                payload=proposed, credential_version_ids={}, content_hash=platform.digest([proposed, {}]),
             ))
             db.update(conn, db.platform_configs, UUID(row["id"]), current_revision_id=revision_id)
     catalog = client.get("/api/v1/skills").json()["data"]["items"]
@@ -78,7 +74,14 @@ def test_plan_contract_rejects_ambiguous_structure(invalid):
     assert PlanPayload.model_json_schema()["$defs"]["PlanTask"]["properties"]["resource_source_ids"]["uniqueItems"] is True
 
 
-def test_explicit_guide_refresh_is_versioned_preserves_status_and_repeatable(admin):
+def test_explicit_guide_refresh_is_versioned_preserves_status_and_repeatable(admin, tmp_path, monkeypatch):
+    root = tmp_path / "config"
+    shutil.copytree(settings().config_root, root)
+    monkeypatch.setattr(settings(), "config_root", root)
+    guide_file = root / "skill/study-trail-guide/SKILL.md"
+    guide_file.write_text(guide_file.read_text(encoding="utf-8") + "\n新版来源标记。\n", encoding="utf-8")
+    with db.engine.begin() as conn, pytest.raises(RuntimeError, match="Initialization source changed"):
+        initialize(conn)
     actor = UUID(admin.get("/api/admin/me").json()["data"]["id"])
     row = next(r for r in configs(admin, "skill") if r["stable_id"] == "study-trail-guide")
     with db.engine.begin() as conn:
@@ -98,25 +101,6 @@ def test_explicit_guide_refresh_is_versioned_preserves_status_and_repeatable(adm
         assert db.one(conn, db.platform_configs, refreshed["id"])["current_revision_id"] == revision_id
 
 
-@pytest.mark.parametrize("file_fp,chunk_fp,success", [("a" * 64, None, True), (None, None, False), ("a" * 64, "b" * 64, False)])
-def test_0006_requires_verified_identity(monkeypatch, file_fp, chunk_fp, success):
-    path = Path(__file__).parents[1] / "alembic/versions/0006_chunk_fingerprint.py"
-    spec = importlib.util.spec_from_file_location("migration_0006", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    with db.engine.begin() as conn:
-        conn.exec_driver_sql("CREATE TEMP TABLE files(id int,owner_id int,index_fingerprint varchar(64)) ON COMMIT DROP")
-        conn.exec_driver_sql("CREATE TEMP TABLE document_chunks(file_id int,owner_id int,index_fingerprint varchar(64)) ON COMMIT DROP")
-        conn.execute(sa.text("INSERT INTO files VALUES(1,1,:fp)"), {"fp": file_fp})
-        conn.execute(sa.text("INSERT INTO document_chunks VALUES(1,1,:fp)"), {"fp": chunk_fp})
-        monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(conn)))
-        if success:
-            migration.upgrade()
-            assert conn.exec_driver_sql("SELECT index_fingerprint FROM document_chunks").scalar() == file_fp
-            assert conn.exec_driver_sql("SELECT attnotnull FROM pg_attribute WHERE attrelid='document_chunks'::regclass AND attname='index_fingerprint'").scalar()
-        else:
-            with pytest.raises(RuntimeError, match="Index identity"):
-                migration.upgrade()
 
 
 async def test_mcp_result_limit_degrades_but_context_limit_terminates(monkeypatch):

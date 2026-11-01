@@ -57,6 +57,7 @@ def invalid(message="平台配置参数不合法", field=None):
 
 
 def lock(conn):
+    db.transaction_lock(conn, "platform")
     # Shared order for acceptance, edits, switches and file processing.
     conn.execute(
         sa.select(db.platform_bindings).order_by(db.platform_bindings.c.slot).with_for_update()
@@ -67,7 +68,6 @@ def lock(conn):
         .with_for_update()
     ).all()
     # Also serialize the first insert before any bindings exist.
-    conn.execute(sa.text("SELECT pg_advisory_xact_lock(839120410)"))
 
 
 def cipher(key_id=None):
@@ -355,7 +355,7 @@ def revision(conn, config, payload, secret_updates, actor):
         refs[slot] = credential(conn, config["id"], slot, value, actor)
     if config["kind"] == "model" and not refs.get("api_key"):
         invalid("请提供模型接口凭据")
-    ident = config["current_revision_id"] if not old else uuid4()
+    ident = uuid4()
     payload = validate(config["kind"], payload, config["purpose"], config["stable_id"])
     number = old["revision_no"] + 1 if old else 1
     conn.execute(
@@ -440,11 +440,14 @@ def create(conn, kind, body, actor):
         description=description,
         enabled=body.get("enabled", False),
         purpose=body.get("purpose"),
-        current_revision_id=uuid4(),
+        current_revision_id=None,
         lock_version=1,
     )
+    requested_enabled = config["enabled"]
+    config["enabled"] = False
     conn.execute(db.platform_configs.insert().values(**config))
     revision(conn, config, body.get("payload"), body.get("secret_updates"), actor)
+    db.update(conn, db.platform_configs, config["id"], enabled=requested_enabled)
     return db.one(conn, db.platform_configs, config["id"])
 
 
@@ -468,6 +471,8 @@ def bound(conn, slot):
 
 
 def projection(conn, config):
+    if not config["current_revision_id"]:
+        raise Problem("CONFIG_INVALID", "配置缺少当前修订", 503)
     rev = require(db.one(conn, db.config_revisions, config["current_revision_id"]))
     return {
         **{
@@ -544,6 +549,8 @@ def catalog(kind, *, include_disabled=False):
         for config in conn.execute(
             sa.select(db.platform_configs).where(db.platform_configs.c.kind == kind, db.platform_configs.c.deleted_at.is_(None))
         ).mappings():
+            if not config["current_revision_id"]:
+                raise Problem("CONFIG_INVALID", "配置缺少当前修订", 503)
             rev = require(db.one(conn, db.config_revisions, config["current_revision_id"]))
             if not include_disabled and not config["enabled"]:
                 continue
@@ -620,6 +627,8 @@ def bind(conn, slot, config, *, expected=None):
     )
     if expected is not None and (current["lock_version"] if current else 0) != expected:
         raise Problem("CONFIG_VERSION_CONFLICT", "生效配置已更新，请重新载入", 409)
+    if not config["current_revision_id"]:
+        raise Problem("CONFIG_INVALID", "配置缺少当前修订", 503)
     rev = require(db.one(conn, db.config_revisions, config["current_revision_id"]))
     payload = rev["payload"]
     if not config["enabled"] or config["deleted_at"] is not None:

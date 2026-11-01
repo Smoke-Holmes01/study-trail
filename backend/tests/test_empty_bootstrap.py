@@ -16,7 +16,8 @@ def empty_platform(monkeypatch):
     # Test-only truncation; the shared fixture already restricts this connection.
     assert db.engine.url.database == "study_trail_test"
     with db.engine.begin() as conn:
-        conn.exec_driver_sql("TRUNCATE platform_configs, config_revisions, credential_versions, platform_bindings, migration_imports CASCADE")
+        from .conftest import reset_tables
+        reset_tables(conn, ["platform_configs", "config_revisions", "credential_versions", "platform_bindings", "migration_imports"])
         initialize(conn)
     monkeypatch.setattr(type(settings()), "models", lambda self: platform.catalog("model"))
 
@@ -34,11 +35,6 @@ def generation(conn):
 
 
 def test_empty_initialization_never_reads_external_service_files(empty_platform, monkeypatch, client, student):
-    def forbidden(*args):
-        raise AssertionError("External service files must not be imported")
-
-    monkeypatch.setattr(type(settings()), "model_catalog", forbidden)
-    monkeypatch.setattr(type(settings()), "file_mcp_servers", forbidden)
     with db.engine.begin() as conn:
         initialize(conn)
         initialize(conn)

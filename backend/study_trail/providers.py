@@ -53,9 +53,9 @@ class Gateway:
 
     def connection(self):
         cfg = settings()
-        provider = self.task["config_snapshot"].get(
-            "provider", {"base_url": "{env:GENERATION_BASE_URL}", "api_key": "{env:GENERATION_API_KEY}"}
-        )
+        provider = self.task["config_snapshot"].get("provider")
+        if not provider or not self.task["config_snapshot"].get("api_model_id"):
+            raise Problem("CONFIG_INVALID", "模型配置缺少连接信息", 503)
         url = cfg.resolve(provider["base_url"]).rstrip("/")
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
@@ -74,7 +74,7 @@ class Gateway:
         model = self.task["config_snapshot"]
         url, headers = self.connection()
         payload = {
-            "model": model.get("api_model_id", model["model_id"]),
+            "model": model["api_model_id"],
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
@@ -108,7 +108,7 @@ class Gateway:
         model = self.task["config_snapshot"]
         url, headers = self.connection()
         payload = {
-            "model": model.get("api_model_id", model["model_id"]),
+            "model": model["api_model_id"],
             "messages": messages,
             "max_tokens": model.get("max_output_tokens", 4096),
             "stream": on_chunk is not None,
@@ -183,7 +183,7 @@ class Gateway:
 
     async def embed(self, texts):
         data = await self.silicon(
-            "embeddings", {"model": "BAAI/bge-m3", "input": texts, "encoding_format": "float"}
+            "embeddings", {"input": texts, "encoding_format": "float"}
         )
         rows = sorted(data["data"], key=lambda r: r["index"])
         if len(rows) != len(texts) or any(len(r["embedding"]) != 1024 for r in rows):
@@ -192,7 +192,7 @@ class Gateway:
 
     async def rerank(self, query, docs):
         data = await self.silicon(
-            "rerank", {"model": "BAAI/bge-reranker-v2-m3", "query": query, "documents": docs, "top_n": 6}
+            "rerank", {"query": query, "documents": docs, "top_n": 6}
         )
         indices = [r["index"] for r in data["results"]]
         if len(indices) != len(set(indices)) or any(

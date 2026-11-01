@@ -1,0 +1,106 @@
+[
+  {
+    "kind": "model",
+    "stable_id": "gemini-3.7-flash-high",
+    "name": "Gemini 3.7 Flash High",
+    "enabled": true,
+    "payload": {
+      "model_kind": "generative",
+      "api_model_id": "gemini-3.7-flash-high",
+      "endpoint": "https://generation.example.invalid/v1",
+      "exposed": true,
+      "capabilities": {
+        "supports_images": true,
+        "input_token_budget": 32768,
+        "max_output_tokens": 4096,
+        "max_images": 6,
+        "max_image_bytes": 62914560,
+        "json_object": true
+      }
+    },
+    "secret_updates": {
+      "api_key": "synthetic-test-secret"
+    },
+    "slot": null
+  },
+  {
+    "kind": "model",
+    "stable_id": "gemini-3.8-flash-high",
+    "name": "Gemini 3.8 Flash High",
+    "enabled": true,
+    "payload": {
+      "model_kind": "generative",
+      "api_model_id": "gemini-3.8-flash-high",
+      "endpoint": "https://generation.example.invalid/v1",
+      "exposed": true,
+      "capabilities": {
+        "supports_images": true,
+        "input_token_budget": 32768,
+        "max_output_tokens": 4096,
+        "max_images": 6,
+        "max_image_bytes": 62914560,
+        "json_object": true
+      }
+    },
+    "secret_updates": {
+      "api_key": "synthetic-test-secret"
+    },
+    "slot": "default_generation"
+  },
+  {
+    "kind": "model",
+    "stable_id": "embedding",
+    "name": "BAAI/bge-m3",
+    "enabled": true,
+    "payload": {
+      "model_kind": "embedding",
+      "api_model_id": "BAAI/bge-m3",
+      "endpoint": "https://resources.example.invalid/v1",
+      "capabilities": {},
+      "dimensions": 1024,
+      "model_revision": "initial",
+      "normalization_version": "dense-v1",
+      "chunking_version": "v1"
+    },
+    "secret_updates": {
+      "api_key": "synthetic-test-secret"
+    },
+    "slot": "embedding"
+  },
+  {
+    "kind": "model",
+    "stable_id": "rerank",
+    "name": "BAAI/bge-reranker-v2-m3",
+    "enabled": true,
+    "payload": {
+      "model_kind": "rerank",
+      "api_model_id": "BAAI/bge-reranker-v2-m3",
+      "endpoint": "https://resources.example.invalid/v1",
+      "capabilities": {}
+    },
+    "secret_updates": {
+      "api_key": "synthetic-test-secret"
+    },
+    "slot": "rerank"
+  },
+  {
+    "kind": "mcp",
+    "stable_id": "exa",
+    "name": "Exa 测试服务",
+    "description": "隔离测试替身",
+    "enabled": true,
+    "payload": {
+      "transport": "streamable_http",
+      "url": "https://mcp.example.invalid/mcp",
+      "allowed_tools": [
+        "web_search_exa"
+      ],
+      "default_enabled": true,
+      "timeout_seconds": 30
+    },
+    "secret_updates": {
+      "header.x-api-key": "synthetic-test-secret"
+    },
+    "slot": null
+  }
+]

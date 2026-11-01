@@ -1,3 +1,4 @@
+from .indexing import indexed_chunk
 import json
 from uuid import UUID
 import sqlalchemy as sa
@@ -94,7 +95,7 @@ def test_preview_does_not_duplicate_rag_overlap(client, resource):
             text_metadata=metadata,
         )
         for chunk in chunks(text, metadata):
-            db.insert(
+            indexed_chunk(
                 conn,
                 db.document_chunks,
                 owner_id=owner,

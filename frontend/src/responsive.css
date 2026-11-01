@@ -1,0 +1,304 @@
+/* User workspace only: admin retains its desktop layout. */
+.workspace {
+  height: var(--viewport-height, 100dvh);
+  min-height: 0;
+}
+.workspace .work-area {
+  min-height: 0;
+}
+.workspace.compact {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+.workspace.phone {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.workspace.phone > .work-area {
+  grid-column: 1;
+}
+.workspace .work-header {
+  padding-top: env(safe-area-inset-top, 0px);
+  min-height: 64px;
+}
+.mobile-tabs {
+  display: flex;
+  justify-content: space-around;
+  background: var(--nav);
+  border-top: 1px solid var(--border);
+  padding: 4px max(8px, env(safe-area-inset-right))
+    max(4px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+.mobile-tabs a,
+.mobile-tabs button {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  color: var(--muted);
+  text-decoration: none;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.mobile-tabs .active {
+  color: var(--accent);
+}
+dialog.resource-drawer {
+  margin: 0;
+  width: min(360px, 90vw);
+  max-width: 90vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0 18px 18px 0;
+  overflow: visible;
+}
+.resource-drawer:not([open]) {
+  display: none;
+}
+.drawer-content {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
+}
+.drawer-content .rail {
+  width: 64px;
+  flex-shrink: 0;
+}
+.drawer-content .resources {
+  flex: 1;
+  min-width: 0;
+}
+.drawer-close {
+  position: absolute;
+  right: 8px;
+  top: max(8px, env(safe-area-inset-top));
+  z-index: 2;
+}
+.resource-drawer .resource-heading {
+  padding-top: 48px;
+}
+.workspace.compact .composer-tools {
+  flex-wrap: wrap;
+}
+.workspace.compact .composer-tools > small {
+  flex-basis: 100%;
+  order: 5;
+}
+.workspace.compact .model-select-trigger {
+  min-width: 0;
+  flex: 1;
+  max-width: calc(100% - 110px);
+}
+.workspace.compact .send-button {
+  margin-left: auto;
+}
+.workspace.compact input,
+.workspace.compact textarea,
+.resource-drawer input {
+  font-size: 16px;
+}
+.workspace.compact button,
+.resource-drawer button,
+.resource-drawer summary {
+  min-height: 44px;
+}
+.workspace.compact .icon-button,
+.resource-drawer .icon-button {
+  min-width: 44px;
+}
+.workspace.phone .work-header {
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+  gap: 8px;
+}
+.workspace.phone .header-title {
+  gap: 6px;
+}
+.workspace.phone .header-icon,
+.workspace.phone .header-title small {
+  display: none;
+}
+.workspace.phone .header-title h2 {
+  font-size: 16px;
+}
+.workspace.phone .header-actions {
+  gap: 4px;
+}
+.workspace.phone .header-actions button {
+  padding: 8px;
+}
+.workspace.phone .chat-scroll {
+  padding: 16px 12px 0;
+}
+.workspace.phone .composer-region {
+  padding: 8px max(12px, env(safe-area-inset-right)) 4px
+    max(12px, env(safe-area-inset-left));
+}
+.workspace.phone .composer textarea {
+  max-height: 22dvh;
+  font-size: 16px;
+}
+.workspace.phone .composer-note {
+  font-size: 11px;
+  margin: 4px 0;
+}
+.workspace.phone .knowledge-content {
+  padding: 16px 12px;
+}
+.workspace.phone .knowledge-summary {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 12px;
+}
+.workspace.phone .search-field {
+  width: 100%;
+}
+.workspace.phone .file-table thead {
+  display: none;
+}
+.workspace.phone .file-table,
+.workspace.phone .file-table tbody {
+  display: block;
+  width: 100%;
+}
+.workspace.phone .file-table tr {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px 16px;
+}
+.workspace.phone .file-table td {
+  display: block;
+  border: 0;
+  padding: 0;
+}
+.workspace.phone .file-table td:first-child,
+.workspace.phone .file-table td:last-child {
+  width: 100%;
+}
+.workspace.phone .file-table td[data-label]::before {
+  content: attr(data-label) "：";
+  color: var(--muted);
+}
+.workspace.phone .filename {
+  max-width: 100%;
+}
+.workspace.phone .filename > div {
+  min-width: 0;
+}
+.workspace.phone .file-actions {
+  flex-wrap: wrap;
+}
+.workspace.phone .suggestions {
+  flex-wrap: wrap;
+}
+.workspace.phone .suggestions button {
+  min-width: 0;
+}
+@media (pointer: coarse) {
+  .auth-screen input,
+  dialog:not(.resource-drawer) input,
+  dialog:not(.resource-drawer) textarea,
+  dialog:not(.resource-drawer) select {
+    font-size: 16px;
+  }
+  dialog:not(.resource-drawer) button {
+    min-height: 44px;
+  }
+}
+@media (max-width: 767px), (max-width: 1023px) and (max-height: 500px) {
+  .auth-screen {
+    grid-template-columns: 1fr;
+    min-height: 100dvh;
+  }
+  .auth-story {
+    padding: 24px;
+    gap: 16px;
+  }
+  .auth-story h1 {
+    font-size: 26px;
+    margin: 12px 0;
+  }
+  .auth-story .trail-art,
+  .auth-story .eyebrow {
+    display: none;
+  }
+  .auth-form {
+    padding: 24px;
+  }
+  .auth-form input {
+    font-size: 16px;
+  }
+  dialog:not(.resource-drawer) {
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  dialog.wide {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+  }
+  dialog > header {
+    padding: 16px;
+    gap: 8px;
+  }
+  dialog > header h2 {
+    font-size: 18px;
+  }
+  .modal-body {
+    padding: 0 16px 16px;
+  }
+  dialog > footer {
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+    flex-wrap: wrap;
+  }
+  .agent-editor {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 16px;
+  }
+  .agent-tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    flex-shrink: 0;
+  }
+  .agent-tabs button {
+    flex-shrink: 0;
+  }
+  .skill-grid {
+    grid-template-columns: 1fr;
+  }
+  .plan-layout {
+    display: block;
+    min-height: 0;
+  }
+  .plan-layout:not(.show-detail) > .plan-detail,
+  .plan-layout.show-detail > aside {
+    display: none;
+  }
+  .plan-back {
+    margin-bottom: 12px;
+  }
+  .theme-options {
+    flex-wrap: wrap;
+  }
+  .toast {
+    max-width: calc(100vw - 24px);
+    bottom: 80px;
+  }
+}
+
+body:has(.resource-drawer[open]) {
+  overflow: hidden;
+}
+.source-popover {
+  max-height: calc(100dvh - 16px);
+}

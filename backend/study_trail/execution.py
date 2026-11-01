@@ -14,6 +14,9 @@ log = logging.getLogger("study_trail.worker")
 
 
 def terminal(conn, row, status, code=None, message=None, result=None):
+    if status in {"failed", "stopped"}:
+        from .vectors import retire
+        retire(conn, task=row)
     row = db.update(
         conn,
         db.tasks,
@@ -68,7 +71,7 @@ def expire_leases():
 def claim(worker_id, task_id=None):
     with db.engine.begin() as conn:
         # Global capacity, also when another independent worker is launched.
-        conn.execute(sa.text("SELECT pg_advisory_xact_lock(734811)"))
+        db.transaction_lock(conn, "capacity")
         ai = ["chat", "prompt_generate", "prompt_polish"]
         files = ["file_process", "storage_cleanup"]
 
@@ -184,14 +187,21 @@ async def run_task(task):
         vectors = []
         for start in range(0, len(candidate), 32):
             vectors.extend(await gateway.embed([r["content_text"] for r in candidate[start : start + 32]]))
+        from . import vectors as index
+        with db.engine.begin() as conn:
+            assert_claim(conn, task)
+            live = c.require(db.one(conn, db.files, row["id"], task["owner_id"], lock=True))
+            version = live["parse_version"] if not live["indexed_at"] else live["parse_version"] + 1
+            generation, candidate = index.prepare(conn, live, candidate, task, version)
+        await asyncio.to_thread(index.upsert, generation, candidate, vectors)
         with db.engine.begin() as conn:
             current = assert_claim(conn, task)
             live = c.require(db.one(conn, db.files, row["id"], task["owner_id"], lock=True))
             if live["index_fingerprint"] != task["config_snapshot"]["embedding"]["index_fingerprint"]:
                 raise c.Problem("EMBEDDING_INDEX_INCOMPATIBLE", "文件索引身份与受理配置不一致", 409)
-            version = live["parse_version"] if not live["indexed_at"] else live["parse_version"] + 1
+            index.activate(conn, live, generation)
             conn.execute(db.document_chunks.delete().where(db.document_chunks.c.file_id == row["id"]))
-            for chunk, vector in zip(candidate, vectors, strict=True):
+            for chunk in candidate:
                 db.insert(
                     conn,
                     db.document_chunks,
@@ -199,7 +209,6 @@ async def run_task(task):
                     knowledge_base_id=row["knowledge_base_id"],
                     file_id=row["id"],
                     parse_version=version,
-                    embedding=vector,
                     **chunk,
                 )
             db.update(
@@ -281,6 +290,7 @@ async def run_task(task):
 async def worker():
     worker_id = str(uuid4())
     active = set()
+    last_index_cleanup = 0
     expire_leases()
     log.info("worker=%s ready", worker_id)
     try:
@@ -301,6 +311,12 @@ async def worker():
                 for a in stale:
                     c.cleanup(conn, a["owner_id"], a["storage_key"])
                     conn.execute(db.attachments.delete().where(db.attachments.c.id == a["id"]))
+            clock = asyncio.get_running_loop().time()
+            if clock - last_index_cleanup >= 5:
+                from .vectors import cleanup_one, recover_staging
+                await asyncio.to_thread(recover_staging)
+                await asyncio.to_thread(cleanup_one)
+                last_index_cleanup = clock
             task = claim(worker_id)
             if task:
                 active.add(asyncio.create_task(run_task(task)))

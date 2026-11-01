@@ -6,7 +6,6 @@ import socket
 import subprocess
 import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -31,20 +30,9 @@ def config_copy(tmp_path, monkeypatch):
     return root
 
 
-def test_model_catalog_reload_provider_mapping_and_env_refs(config_copy, monkeypatch):
+def test_database_provider_mapping_and_frozen_credentials(config_copy, monkeypatch):
     monkeypatch.setattr(Settings, "models", REAL_MODELS)
     monkeypatch.setenv("SECOND_KEY", "private-test-key")
-    config = settings().read_config("model.json")
-    config["providers"]["second"] = {"base_url": "https://second.invalid/v1", "api_key": "{env:SECOND_KEY}"}
-    config["models"]["alias"] = {
-        **config["models"][config["default_model_id"]],
-        "provider_id": "second",
-        "api_model_id": "upstream-model",
-    }
-    config["default_model_id"] = "alias"
-    (config_copy / "model.json").write_text(json.dumps(config), encoding="utf-8")
-    # File changes never mutate runtime configuration after initialization.
-    assert core.model_config()["model_id"] != "alias"
     with db.engine.begin() as conn:
         platform.lock(conn)
         row = platform.create(conn, "model", {"stable_id": "alias", "name": "alias", "enabled": True,
@@ -127,31 +115,17 @@ def test_only_selected_skill_is_loaded_and_bad_skills_are_isolated(config_copy):
     assert "bad" not in skills.file_catalog()
 
 
-def test_credentials_cannot_enter_config_snapshots_as_literals(config_copy):
-    data = settings().read_config("model.json")
-    data["providers"]["generation"]["api_key"] = "literal-secret"
-    (config_copy / "model.json").write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(core.Problem) as invalid:
-        settings().model_catalog()
-    assert invalid.value.code == "CONFIG_INVALID"
-    data = settings().read_config("mcp_config.json")
-    data["mcpServers"]["exa"]["headers"]["x-api-key"] = "literal-secret"
-    (config_copy / "mcp_config.json").write_text(json.dumps(data), encoding="utf-8")
+def test_current_configuration_rejects_environment_references():
     with pytest.raises(core.Problem):
-        settings().file_mcp_servers()
+        platform.validate("model", {"endpoint": "{env:OLD_KEY}"})
+    with pytest.raises(core.Problem):
+        settings().resolve("{env:OLD_KEY}")
 
 
-def test_environment_credential_rotation_and_removal(tmp_path, monkeypatch):
-    from study_trail import config
-
-    env_file = tmp_path / ".env"
-    monkeypatch.setattr(config, "ENV_FILE", env_file)
-    monkeypatch.delenv("GENERATION_API_KEY", raising=False)
-    cfg = Settings(generation_api_key="cached-old-key")
-    env_file.write_text("GENERATION_API_KEY=new-key\n", encoding="utf-8")
-    assert cfg.resolve("{env:GENERATION_API_KEY}") == "new-key"
-    env_file.write_text("", encoding="utf-8")
-    assert cfg.resolve("{env:GENERATION_API_KEY}") == ""
+def test_model_connection_requires_current_snapshot():
+    with pytest.raises(core.Problem) as error:
+        Gateway({"config_snapshot": {"model_id": "old"}}).connection()
+    assert error.value.code == "CONFIG_INVALID"
 
 
 def test_ownership_and_csrf_protect_tool_calls(client, resource):

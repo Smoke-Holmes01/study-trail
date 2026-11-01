@@ -127,7 +127,7 @@ def test_config_cas_idempotency_secrets_and_frozen_credentials(admin, client, re
     assert change(admin, "/configs/model/" + row["id"], body, key).json()["data"] == response.json()["data"]
     assert change(admin, "/configs/model/" + row["id"], {**body, "name": "other"}, key).status_code == 409
     assert change(admin, "/configs/model/" + row["id"], body).status_code == 409
-    assert Gateway({"config_snapshot": before}).connection()[1]["Authorization"] == "Bearer test-secret"
+    assert Gateway({"config_snapshot": before}).connection()[1]["Authorization"] == "Bearer synthetic-test-secret"
     with db.engine.begin() as conn:
         after = platform.snapshot(conn, before["model_id"])
     assert (
@@ -399,23 +399,6 @@ def test_audit_failure_rolls_back_configuration(admin, monkeypatch):
     assert response.status_code == 503
     current = admin.get("/api/admin/configs/skill/" + row["id"]).json()["data"]
     assert current["name"] == row["name"] and current["revision_no"] == row["revision_no"]
-
-
-async def test_verification_budget_stops_before_another_attempt(student):
-    from study_trail.telemetry import verification_budget
-
-    budget = {"used": 0, "limit": 1}
-    token = verification_budget.set(budget)
-    try:
-        async with attempt({"owner_id": student["id"], "kind": "chat"}):
-            pass
-        with pytest.raises(core.Problem) as exc:
-            async with attempt({"owner_id": student["id"], "kind": "chat"}):
-                pytest.fail("The second external request must not be started")
-        assert exc.value.code == "VERIFICATION_BUDGET_EXHAUSTED"
-        assert budget["used"] == 1
-    finally:
-        verification_budget.reset(token)
 
 
 def test_disabled_account_closes_sse_without_stopping_task(client, resource, admin, monkeypatch):

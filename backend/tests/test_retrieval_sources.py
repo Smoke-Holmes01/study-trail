@@ -1,3 +1,4 @@
+from .indexing import indexed_chunk
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 import json
@@ -128,7 +129,7 @@ async def test_real_knowledge_retrieval_keeps_only_cited_chunk(client, resource,
     with db.engine.begin() as conn:
         file = db.insert(conn, db.files, owner_id=owner, knowledge_base_id=UUID(kb["id"]), original_name="课程.txt", extension=".txt", media_type="text/plain", storage_key=workflow.c.store_bytes(text.encode()), sha256=b'a'*32, byte_size=len(text.encode()), status="ready", text_snapshot=text)
         for chunk in chunks(text, {"boundaries":[{"start":0,"end":len(text),"line":1}]}):
-            db.insert(conn, db.document_chunks, owner_id=owner, knowledge_base_id=UUID(kb["id"]), file_id=file["id"], parse_version=1, embedding=[1.0]+[0.0]*1023, **chunk)
+            indexed_chunk(conn, db.document_chunks, owner_id=owner, knowledge_base_id=UUID(kb["id"]), file_id=file["id"], parse_version=1, embedding=[1.0]+[0.0]*1023, **chunk)
     assert client.patch("/api/v1/agents/"+resource["agent"]["id"],json={"knowledge_base_ids":[kb["id"]]}).status_code == 200
     class Gateway(FakeGateway):
         async def structured(self,prompt,messages=None):
@@ -149,7 +150,7 @@ async def test_real_knowledge_retrieval_keeps_only_cited_chunk(client, resource,
     assert task["status"]=="succeeded",task
     assert len(task["result"]["sources"])==1
     assert task["result"]["sources"][0]["file_id"]==str(file["id"])
-    assert "本次已检索知识库" in task["result"]["execution_info"]
+    assert any("本次已检索知识库" in x for x in task["result"]["execution_info"])
 
 
 def test_builtin_is_independent_of_disabled_legacy_exa_selection(client, resource, monkeypatch):
@@ -157,7 +158,10 @@ def test_builtin_is_independent_of_disabled_legacy_exa_selection(client, resourc
     monkeypatch.setattr("study_trail.builtin_search.configuration", configuration)
     with db.engine.begin() as conn:
         legacy = conn.execute(sa.select(db.platform_configs).where(db.platform_configs.c.kind=="mcp",db.platform_configs.c.stable_id=="exa")).mappings().one()
+        revision = db.one(conn, db.config_revisions, legacy["current_revision_id"])
+        platform.revision(conn, legacy, {**revision["payload"], "url": "https://mcp.exa.ai/mcp?tools=web_search_exa"}, None, None)
         db.update(conn,db.platform_configs,legacy["id"],enabled=False)
+    with db.engine.connect() as conn:
         agent = db.one(conn,db.agents,UUID(resource["agent"]["id"]))
         snapshot = workflow.c.agent_config(conn,{**agent,"mcp_server_ids":["exa"]})
         assert snapshot["builtin_search"]["allowed_tools"] == ["web_search_exa","web_fetch_exa"]

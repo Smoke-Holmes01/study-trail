@@ -1,4 +1,4 @@
-"""Current v0.0.1 user workflows with deterministic provider output."""
+"""Current v0.0.4 user workflows with deterministic provider output."""
 from uuid import UUID
 
 from study_trail import db

@@ -9,6 +9,7 @@ import {
   watch,
 } from "vue";
 import { Check, ChevronDown, Sparkles } from "lucide-vue-next";
+import { viewportBounds } from "../lib/viewport";
 import type { ModelOption } from "../lib/api";
 const props = defineProps<{
   models: ModelOption[];
@@ -23,7 +24,7 @@ const open = ref(false);
 const trigger = ref<HTMLButtonElement>();
 const panel = ref<HTMLElement>();
 const listId = useId();
-const position = ref({ left: "8px", top: "8px", width: "304px" });
+const position = ref({ left: "8px", top: "8px", width: "304px", maxHeight: "calc(100dvh - 16px)" });
 let frame = 0;
 function close(restoreFocus = false) {
   open.value = false;
@@ -36,13 +37,15 @@ function place() {
     close();
     return;
   }
-  const width = Math.min(304, innerWidth - 16);
+  const bounds = viewportBounds();
+  const width = Math.min(304, bounds.width - 16);
   const height = panel.value?.offsetHeight ?? 240;
   const above = rect.top - height - 8;
   position.value = {
+    maxHeight: `${bounds.height - 16}px`,
     width: `${width}px`,
-    left: `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`,
-    top: `${Math.max(8, Math.min(above >= 8 ? above : rect.bottom + 8, innerHeight - height - 8))}px`,
+    left: `${Math.max(bounds.left + 8, Math.min(rect.left, bounds.left + bounds.width - width - 8))}px`,
+    top: `${Math.max(bounds.top + 8, Math.min(above >= bounds.top + 8 ? above : rect.bottom + 8, bounds.top + bounds.height - height - 8))}px`,
   };
 }
 function schedule() {
@@ -113,12 +116,16 @@ onMounted(() => {
   document.addEventListener("pointerdown", outside);
   document.addEventListener("focusin", outside);
   window.addEventListener("resize", schedule);
+  window.visualViewport?.addEventListener("resize", schedule);
+  window.visualViewport?.addEventListener("scroll", schedule);
   window.addEventListener("scroll", schedule, true);
 });
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", outside);
   document.removeEventListener("focusin", outside);
   window.removeEventListener("resize", schedule);
+  window.visualViewport?.removeEventListener("resize", schedule);
+  window.visualViewport?.removeEventListener("scroll", schedule);
   window.removeEventListener("scroll", schedule, true);
   cancelAnimationFrame(frame);
 });

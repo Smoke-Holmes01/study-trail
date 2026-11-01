@@ -1,79 +1,29 @@
-"""Apply only after a verified rehearsal whose source hashes still match.
-
-The launcher must already be stopped. On failure maintenance remains enabled;
-recover using the matching database.dump, storage and backend.env backup.
-"""
-
+"""Apply a MySQL upgrade only with a verified, unchanged coordinated backup."""
 import argparse
 import json
-import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
-
 sys.path.insert(0, str(Path(__file__).parents[1]))
-import sqlalchemy as sa
-from alembic.config import Config
-from alembic.script import ScriptDirectory
-
 from study_trail import db
-from tools.rehearse_upgrade import ROOT, snapshot, storage_manifest
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--admin-login", required=True)
-    parser.add_argument("--generate-admin", action="store_true")
-    args = parser.parse_args()
-    report = json.loads(args.report.read_text(encoding="utf-8"))
-    if db.engine.url.database != "study_trail" or not all(
-        report.get(key) for key in ("restore_verified", "upgrade_preserves_data", "repeat_import_verified")
-    ):
-        raise RuntimeError("Expected the daily-use database and a successful rehearsal report.")
-    backup = args.report.resolve().parent
-    if (
-        not backup.is_relative_to((ROOT / ".local/backups").resolve())
-        or not (backup / "database.dump").is_file()
-    ):
-        raise RuntimeError("Verified backup is missing or outside the local backup directory.")
-    if snapshot(db.engine) != report["original_data"]:
-        raise RuntimeError("Original data changed after rehearsal. Create and verify a fresh backup first.")
-    if not report.get("storage_verified") or storage_manifest(db.settings().storage_root) != storage_manifest(
-        backup / "storage"
-    ):
-        raise RuntimeError("Storage changed after backup; take and verify a fresh backup first.")
-    with db.engine.connect() as conn:
-        if conn.exec_driver_sql("SELECT count(*) FROM tasks WHERE status IN ('queued','running')").scalar():
-            raise RuntimeError("Accepted tasks must finish before applying the upgrade.")
-    maintenance = ROOT / ".local/maintenance"
-    maintenance.write_text("platform migration", encoding="utf-8")
-    env = {**os.environ, "PYTHONUTF8": "1"}
-    subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"], env=env, cwd=ROOT / "backend", check=True
-    )
-    command = [sys.executable, "tools/bootstrap_platform.py", "--admin-login", args.admin_login, "--refresh-guide"]
-    if args.generate_admin:
-        command.append("--generate-admin")
-    subprocess.run(command, env=env, cwd=ROOT / "backend", check=True)
-    # The new key is now needed for the upgraded database; retain it next to the verified backup.
-    shutil.copy2(ROOT / "backend/.env", backup / "backend-upgraded.env")
-    (backup / "backend-upgraded.env").chmod(0o600)
-    after = snapshot(db.engine)
-    if after != report["original_data"]:
-        raise RuntimeError("Post-upgrade learning-data verification failed; maintenance remains enabled.")
-    result = {
-        "migration": ScriptDirectory.from_config(Config(str(ROOT / "backend/alembic.ini"))).get_current_head(),
-        "table_count": len(sa.inspect(db.engine).get_table_names()) - 1,
-        "verified_backup": str(backup),
-        "original_learning_data_preserved": True,
-        "admin_login": args.admin_login,
-    }
-    (backup / "applied.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    maintenance.unlink()
-    print("Local upgrade completed; original learning data verified. Report:", backup / "applied.json")
-
+from study_trail.config import settings
+from tools.storage_maintenance import operator_lock, relational_snapshot, storage_manifest
+from tools.local_runtime import ROOT, LOCAL
+from tools.manage_runtime import running
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--report", type=Path, required=True)
+    args = parser.parse_args()
+    report = args.report.resolve()
+    if not report.is_relative_to((LOCAL / "backups").resolve()):
+        raise RuntimeError("Expected a local coordinated backup report")
+    data = json.loads(report.read_text(encoding="utf-8"))
+    with operator_lock():
+        if not data.get("restore_verified") or running() or not (LOCAL / "maintenance").exists():
+            raise RuntimeError("Verified recovery and stopped application services are required")
+        if relational_snapshot(db.engine) != data["mysql"] or storage_manifest(settings().storage_root) != data["storage"]:
+            raise RuntimeError("Source data changed after rehearsal; take a fresh backup")
+        subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=ROOT / "backend", check=True)
+        subprocess.run([sys.executable, "tools/check_installation.py"], cwd=ROOT / "backend", check=True)
+        print("MySQL upgrade completed; maintenance remains enabled until explicit resume.")

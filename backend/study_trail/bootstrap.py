@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert
 
 from . import db, skills
 from . import platform as p
@@ -115,38 +114,5 @@ def initialize(conn, actor=None):
         sa.select(db.platform_bindings.c.slot).where(db.platform_bindings.c.slot == "limits")
     ).first():
         p.bind(conn, "limits", row)
-    from .telemetry import RESOURCE_TABLES
-
-    for name in sorted(RESOURCE_TABLES):
-        table = db.metadata.tables[name]
-        for row in conn.execute(sa.select(table)).mappings():
-            if name == "users" and row["role"] != "user":
-                continue
-            conn.execute(
-                insert(db.resource_events)
-                .values(
-                    event_key=f"{name}:{row['id']}:created",
-                    resource_kind=name,
-                    resource_id=row["id"],
-                    owner_id=row.get("owner_id", row["id"]),
-                    occurred_at=row["created_at"],
-                    origin="backfill",
-                )
-                .on_conflict_do_nothing(index_elements=["event_key"])
-            )
-    from .telemetry import inserted
-
-    for task in conn.execute(sa.select(db.tasks).where(db.tasks.c.kind != "storage_cleanup")).mappings():
-        if not conn.execute(
-            sa.select(db.task_run_facts.c.task_id).where(db.task_run_facts.c.task_id == task["id"])
-        ).first():
-            inserted(conn, db.tasks, task)
-            from .telemetry import task_changed
-
-            task_changed(conn, task)
     for key in ("resources", "tasks", "calls"):
-        conn.execute(
-            insert(db.metric_coverage)
-            .values(metric_key=key, history_complete=False, note_code="HISTORY_NOT_COLLECTED")
-            .on_conflict_do_nothing(index_elements=["metric_key"])
-        )
+        db.insert_once(conn, db.metric_coverage, dict(metric_key=key, history_complete=False, note_code='HISTORY_NOT_COLLECTED'), ['metric_key'])

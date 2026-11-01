@@ -1,8 +1,8 @@
-param([switch]$KeepRunning, [string]$Spec)
+﻿param([switch]$KeepRunning, [string]$Spec)
 $ErrorActionPreference = 'Stop'
 $srcRoot = Split-Path $PSScriptRoot -Parent
 $backendRoot = Join-Path $srcRoot 'backend'
-$localRoot = Join-Path $srcRoot '.local'
+$localRoot = Join-Path $srcRoot '.local/v004'
 $python = Join-Path $backendRoot '.venv\Scripts\python.exe'
 Push-Location $backendRoot
 try { & $python tools/prepare_e2e.py; if ($LASTEXITCODE) { throw 'E2E preparation failed' } } finally { Pop-Location }
@@ -24,7 +24,7 @@ try {
     $started | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $localRoot 'e2e-processes.json') -Encoding utf8
     $ready = $false
     for ($attempt=0; $attempt -lt 30; $attempt++) {
-        try { $null=Invoke-WebRequest -Uri 'http://127.0.0.1:8001/openapi.json' -TimeoutSec 2; $null=Invoke-WebRequest -Uri $env:E2E_BASE_URL -TimeoutSec 2; $ready=$true; break } catch { Start-Sleep -Milliseconds 500 }
+        try { $null=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8001/openapi.json' -TimeoutSec 2; $null=Invoke-WebRequest -UseBasicParsing -Uri $env:E2E_BASE_URL -TimeoutSec 2; $ready=$true; break } catch { Start-Sleep -Milliseconds 500 }
     }
     if (-not $ready) { throw 'Isolated browser-test services did not become ready' }
     Push-Location (Join-Path $srcRoot 'frontend')

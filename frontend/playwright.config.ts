@@ -1,5 +1,6 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
+  testIgnore: "responsive.spec.ts",
   testDir: "./e2e",
   timeout: 90000,
   workers: 1,

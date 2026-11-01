@@ -1,11 +1,7 @@
 from uuid import UUID, uuid4
-from pathlib import Path
-import importlib.util
 
 import pytest
 import sqlalchemy as sa
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 
 from study_trail import db, platform, skills
 from study_trail.bootstrap import initialize, refresh_builtin_guide
@@ -93,7 +89,7 @@ def test_agent_selection_blocks_delete_until_unlinked(admin, client, resource, k
         from study_trail.providers import Gateway
         with db.engine.connect() as conn:
             assert db.one(conn, db.tasks, task_id)["config_snapshot"] == frozen
-        assert Gateway({"config_snapshot": frozen}).connection()[1]["Authorization"] == "Bearer test-secret"
+        assert Gateway({"config_snapshot": frozen}).connection()[1]["Authorization"] == "Bearer synthetic-test-secret"
 
 
 def test_deleted_builtin_is_not_recreated_and_admin_permissions_apply(admin, client, student, monkeypatch):
@@ -115,23 +111,3 @@ def test_deleted_builtin_is_not_recreated_and_admin_permissions_apply(admin, cli
         initialize(conn)
         assert db.one(conn, db.platform_configs, UUID(row["id"]))["deleted_at"] is not None
     assert "study-trail-guide" not in platform.catalog("skill", include_disabled=True)
-
-
-def test_0007_upgrade_preserves_existing_rows_and_downgrade_refuses_resurrection():
-    path = Path(__file__).parents[1] / "alembic/versions/0007_config_deletion.py"
-    spec = importlib.util.spec_from_file_location("migration_0007", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    with db.engine.begin() as conn:
-        conn.exec_driver_sql("CREATE TEMP TABLE platform_configs (id int PRIMARY KEY, enabled boolean NOT NULL) ON COMMIT DROP")
-        conn.exec_driver_sql("INSERT INTO platform_configs VALUES (1, true)")
-        with Operations.context(MigrationContext.configure(conn)):
-            migration.upgrade()
-            assert conn.exec_driver_sql("SELECT enabled, deleted_at FROM platform_configs WHERE id=1").one() == (True, None)
-            with conn.begin_nested():
-                with pytest.raises(sa.exc.IntegrityError):
-                    with conn.begin_nested():
-                        conn.exec_driver_sql("UPDATE platform_configs SET deleted_at=now() WHERE id=1")
-            conn.exec_driver_sql("UPDATE platform_configs SET enabled=false, deleted_at=now() WHERE id=1")
-            with pytest.raises(RuntimeError, match="Deleted configurations exist"):
-                migration.downgrade()

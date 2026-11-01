@@ -1,20 +1,33 @@
-name: study-trail
+name: study-trail-v004
 services:
-  db:
-    image: pgvector/pgvector@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+  mysql:
+    image: mysql:8.4.13@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_bin", "--transaction-isolation=READ-COMMITTED", "--restrict-fk-on-non-standard-key=OFF", "--skip-log-bin"]
     environment:
-      POSTGRES_USER: study_trail
-      POSTGRES_DB: study_trail
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: study_trail
+      MYSQL_USER: study_trail
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
     ports:
-      - "127.0.0.1:54329:5432"
+      - "127.0.0.1:${MYSQL_PORT:-53306}:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U study_trail -d study_trail"]
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 40
+    restart: unless-stopped
+  chroma:
+    image: chromadb/chroma:1.5.9@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+    environment:
+      CHROMA_PERSIST_PATH: /data
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "127.0.0.1:${CHROMA_PORT:-58000}:8000"
+    volumes:
+      - chroma_data:/data
     restart: unless-stopped
 volumes:
-  postgres_data:
+  mysql_data:
+  chroma_data:

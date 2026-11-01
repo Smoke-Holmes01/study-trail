@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from .mysql_types import JSON, UUID, UTCDateTime
 
 
 def install(metadata):
@@ -16,11 +16,10 @@ def install(metadata):
             UUID(as_uuid=True),
             primary_key=True,
             default=uuid4,
-            server_default=sa.text("gen_random_uuid()"),
         )
 
     def timestamp(name="created_at"):
-        return column(name, sa.DateTime(timezone=True), server_default=sa.text("now()"))
+        return column(name, UTCDateTime(), server_default=sa.text("now()"))
 
     configs = sa.Table(
         "platform_configs",
@@ -32,11 +31,11 @@ def install(metadata):
         column("description", default="", server_default=""),
         column("enabled", sa.Boolean, default=False, server_default=sa.false()),
         sa.Column("purpose", sa.String(48)),
-        column("current_revision_id", UUID(as_uuid=True)),
+        sa.Column("current_revision_id", UUID(as_uuid=True)),
         column("lock_version", sa.Integer, default=1, server_default="1"),
         timestamp(),
         timestamp("updated_at"),
-        sa.Column("deleted_at", sa.DateTime(timezone=True)),
+        sa.Column("deleted_at", UTCDateTime()),
         sa.UniqueConstraint("kind", "stable_id"),
         sa.CheckConstraint("kind IN ('model','prompt','skill','mcp','limits')"),
         sa.CheckConstraint("lock_version > 0"),
@@ -48,8 +47,8 @@ def install(metadata):
         ident(),
         column("config_id", UUID(as_uuid=True)),
         column("revision_no", sa.Integer),
-        column("payload", JSONB),
-        column("credential_version_ids", JSONB, default=dict, server_default="{}"),
+        column("payload", JSON),
+        column("credential_version_ids", JSON, default=dict, server_default="{}"),
         column("content_hash", sa.String(64)),
         sa.Column("created_by", UUID(as_uuid=True)),
         timestamp(),
@@ -64,16 +63,11 @@ def install(metadata):
             ["config_revisions.config_id", "config_revisions.id"],
             name="fk_platform_current_revision",
             use_alter=True,
-            deferrable=True,
-            initially="DEFERRED",
         )
     )
-    sa.Index(
-        "uq_active_prompt_purpose",
-        configs.c.purpose,
-        unique=True,
-        postgresql_where=sa.text("kind = 'prompt' AND enabled"),
-    )
+    configs.append_column(sa.Column("active_prompt_purpose", sa.String(48), sa.Computed("CASE WHEN kind = 'prompt' AND enabled THEN purpose ELSE NULL END")))
+    configs.append_constraint(sa.CheckConstraint("NOT enabled OR current_revision_id IS NOT NULL", name="ck_config_enabled_revision"))
+    sa.Index("uq_active_prompt_purpose", configs.c.active_prompt_purpose, unique=True)
     sa.Table(
         "credential_versions",
         metadata,
@@ -124,8 +118,8 @@ def install(metadata):
         column("kind", sa.String(32)),
         sa.Column("action", sa.String(32)),
         timestamp("accepted_at"),
-        sa.Column("started_at", sa.DateTime(timezone=True)),
-        sa.Column("finished_at", sa.DateTime(timezone=True)),
+        sa.Column("started_at", UTCDateTime()),
+        sa.Column("finished_at", UTCDateTime()),
         column("status", sa.String(16)),
         sa.Column("model_config_id", UUID(as_uuid=True)),
         sa.Column("safe_error_code", sa.String(80)),
@@ -146,7 +140,7 @@ def install(metadata):
         sa.Column("revision_id", UUID(as_uuid=True)),
         sa.Column("tool_name", sa.String(200)),
         timestamp("started_at"),
-        sa.Column("finished_at", sa.DateTime(timezone=True)),
+        sa.Column("finished_at", UTCDateTime()),
         column("status", sa.String(16)),
         sa.Column("safe_error_code", sa.String(80)),
         sa.UniqueConstraint("operation_key", "attempt_no"),

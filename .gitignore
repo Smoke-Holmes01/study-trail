@@ -53,7 +53,13 @@ blob-report/
 !/backend/tools/prepare_e2e.py
 !/backend/tools/seed_test_platform.py
 !/backend/tools/e2e_app.py
-!/backend/tools/verify_live.py
+!/backend/tools/freeze_mysql_baseline.py
+!/backend/tools/local_runtime.py
+!/backend/tools/setup_local.py
+!/backend/tools/vector_index.py
+!/backend/tools/manage_runtime.py
+!/backend/tools/storage_maintenance.py
+!/backend/tools/project_python.py
 
 # Editor and OS files
 .idea/

@@ -1,6 +1,4 @@
 import { test, expect } from "@playwright/test";
-import fs from "node:fs";
-import path from "node:path";
 
 test("agent tabs, draft switches, slash picker and failed send preserve skill selection", async ({
   page,
@@ -14,10 +12,6 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   });
   expect(register.status()).toBe(201);
   const user = (await register.json()).data;
-  fs.writeFileSync(
-    path.resolve("../.local/capability-ui-owner.json"),
-    JSON.stringify({ id: user.id, login }),
-  );
   expect(
     (
       await page.request.post("/api/v1/auth/login", {
@@ -63,7 +57,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await dialog.getByLabel("搜索技能").fill("出题");
   await expect(dialog.locator(".skill-card")).toHaveCount(1);
   await dialog.getByLabel("搜索技能").fill("");
-  await page.screenshot({ path: "../.local/capabilities-modal-desktop.png" });
+  await page.screenshot({ path: "../.local/v004/capabilities-modal-desktop.png" });
   const created = page.waitForResponse(
     (r) =>
       r.request().method() === "POST" && r.url().endsWith("/api/v1/agents"),
@@ -110,7 +104,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await composer.fill("/");
   await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(3);
   await composer.press("ArrowDown");
-  await page.screenshot({ path: "../.local/capabilities-slash-desktop.png" });
+  await page.screenshot({ path: "../.local/v004/capabilities-slash-desktop.png" });
   await composer.press("Escape");
   await expect(page.getByRole("listbox")).not.toBeVisible();
   await page.getByLabel("智能体操作").click();
@@ -130,7 +124,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await page.getByRole("button", { name: "编辑智能体", exact: true }).click();
   await dialog.getByRole("tab", { name: "技能", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "../.local/capabilities-modal-mobile.png" });
+  await page.screenshot({ path: "../.local/v004/capabilities-modal-mobile.png" });
   expect(
     (await dialog.locator(".agent-tabs").boundingBox())!.height,
   ).toBeLessThan(80);

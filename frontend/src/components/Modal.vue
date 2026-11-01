@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from "vue";
+import { ref, watch, nextTick, useId } from "vue";
+import { useResponsive } from "../composables/useResponsive";
+const { height } = useResponsive();
 const props = defineProps<{ open: boolean; title: string; wide?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
+const titleId = useId();
 const dialog = ref<HTMLDialogElement>();
 let previous: HTMLElement | null = null;
 watch(
@@ -34,13 +37,14 @@ function backdrop(event: MouseEvent) {
 <template>
   <dialog
     ref="dialog"
+    :style="{ maxHeight: `calc(${height} - 16px)` }"
     :class="{ wide }"
-    aria-labelledby="dialog-title"
+    :aria-labelledby="titleId"
     @cancel.prevent="emit('close')"
     @click="backdrop"
   >
     <header>
-      <h2 id="dialog-title">{{ title }}</h2>
+      <h2 :id="titleId">{{ title }}</h2>
       <button class="icon-button" aria-label="关闭弹窗" @click="emit('close')">
         ×
       </button>

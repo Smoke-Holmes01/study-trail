@@ -2209,8 +2209,5 @@ dialog > footer {
     padding: 8px;
     font-size: 12px;
   }
-  .workspace {
-    min-width: 1024px;
-    min-height: 768px;
-  }
+
 }

@@ -529,7 +529,7 @@ const ordinaryList = computed(() =>
       <header class="admin-topbar">
         <span>管理端 / {{ title }}</span>
         <div>
-          <span class="admin-version">v0.0.3</span
+          <span class="admin-version">v0.0.4</span
           ><button
             class="icon"
             :aria-label="dark ? '切换明亮主题' : '切换暗色主题'"

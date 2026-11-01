@@ -10,6 +10,7 @@ import AuthView from "./views/AuthView.vue";
 import WorkspaceView from "./views/WorkspaceView.vue";
 import { useSession } from "./stores/session";
 import "./style.css";
+import "./responsive.css";
 import "katex/dist/katex.min.css";
 const pinia = createPinia();
 const router = createRouter({

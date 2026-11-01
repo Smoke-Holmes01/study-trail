@@ -112,7 +112,9 @@ def model_config(ident=None, conn=None):
     model = settings().models().get(ident)
     if not model or not model.get("enabled"):
         raise Problem("MODEL_UNAVAILABLE", "当前模型尚不可用，请稍后再试", 503)
-    provider = model.get("provider") or settings().model_catalog().providers["generation"].model_dump()
+    provider = model.get("provider")
+    if not provider or not model.get("api_model_id"):
+        raise Problem("CONFIG_INVALID", "模型配置缺少连接信息", 503)
     return {"model_id": ident, **model, "provider": provider}
 
 
@@ -145,9 +147,10 @@ def idem(conn, request, owner, payload, action):
     key = request.headers.get("idempotency-key", "")
     if not 1 <= len(key) <= 128 or any(ord(c) < 32 or ord(c) > 126 for c in key):
         raise Problem("VALIDATION_ERROR", "缺少有效 Idempotency-Key")
-    # Serialize only this owner's key, including concurrent first requests.
-    lock = int.from_bytes(hashlib.sha256(f"{owner}:{key}".encode()).digest()[:8], signed=True)
-    conn.execute(sa.text("SELECT pg_advisory_xact_lock(:lock)"), {"lock": lock})
+    # Fixed hash slots serialize first requests; exact keys decide replay/conflict.
+    db.transaction_lock(conn, "idem", hashlib.sha256(f"{owner}:{key}".encode()).digest()[0])
+    from .platform import lock as platform_lock
+    platform_lock(conn)
     finger = hashlib.sha256(
         json.dumps(
             [request.method, request.url.path, jsonable_encoder(payload)], sort_keys=True, ensure_ascii=False

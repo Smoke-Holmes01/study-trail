@@ -529,23 +529,15 @@ async def kb_retrieve(state):
         if exc.code == "TASK_TIMEOUT":
             raise
         return {"candidates": [], "degradation": [*state["degradation"], "知识库检索暂时不可用"], "execution_info": [*state.get("execution_info", []), "本次知识库检索失败，未取得资料"]}
-    with db.engine.begin() as conn:
-        rows = list(
-            conn.execute(
-                sa.select(db.document_chunks, db.files.c.original_name)
-                .join(db.files, db.files.c.id == db.document_chunks.c.file_id)
-                .where(
-                    db.document_chunks.c.owner_id == task["owner_id"],
-                    db.document_chunks.c.knowledge_base_id.in_([UUID(x) for x in bases]),
-                    db.files.c.status == "ready",
-                    db.document_chunks.c.index_fingerprint == task["config_snapshot"]["embedding"]["index_fingerprint"],
-                    db.files.c.parse_version == db.document_chunks.c.parse_version,
-                )
-                .order_by(db.document_chunks.c.embedding.cosine_distance(vector))
-                .limit(20)
-            ).mappings()
-        )
-    return {"candidates": [dict(row) for row in rows], "execution_info": [*state.get("execution_info", []), "本次已检索知识库"]}
+    try:
+        from .vectors import retrieve
+        rows = await asyncio.to_thread(retrieve, task["owner_id"], [UUID(x) for x in bases],
+            task["config_snapshot"]["embedding"]["index_fingerprint"], vector)
+    except Exception as exc:
+        return {"candidates": [], "degradation": [*state["degradation"], "知识库检索暂时不可用"],
+                "execution_info": [*state.get("execution_info", []), "本次知识库检索失败，未取得资料"]}
+    return {"candidates": rows, "execution_info": [*state.get("execution_info", []), f"本次已检索知识库，取得{len(rows)}条有效候选"]}
+
 
 
 async def rerank(state):

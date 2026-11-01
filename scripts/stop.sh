@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 src_root="$(cd "$(dirname "$0")/.." && pwd)"
-for name in api worker frontend; do
-  file="$src_root/.local/$name.pid"
-  if [[ -f "$file" ]]; then
-    process_id="$(cat "$file")"
-    if [[ "$process_id" =~ ^[0-9]+$ ]] && kill -0 "$process_id" 2>/dev/null; then
-      process_command="$(ps -p "$process_id" -o args=)"
-      case "$process_command" in *study_trail.api*|*study_trail.execution*|*vite/bin/vite.js*) kill "$process_id" ;; esac
-    fi
-    rm -- "$file"
-  fi
-done
-echo 'Study Trail application processes stopped; database and files retained.'
+(cd "$src_root/backend" && .venv/bin/python tools/manage_runtime.py stop)
+# Database data volumes are retained. Explicitly stop services with:
+# docker compose -p study-trail-v004 -f "$src_root/infra/compose.yaml" --env-file "$src_root/.local/v004/infra.env" stop

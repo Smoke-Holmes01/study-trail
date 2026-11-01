@@ -1,65 +1,62 @@
-# 学迹 v0.0.3
+# 学迹 v0.0.5
 
-基于LangGraph的自主学习智能辅导平台，提供用户端与管理端。Vue、FastAPI、独立Python worker、PostgreSQL/pgvector和私有文件存储；当前86项接口操作、67条路径、29张业务表，迁移0001—0007。
+基于LangGraph的自主学习智能辅导平台。Vue 3、FastAPI、独立 Python worker、MySQL 8.4.13、Chroma 1.5.9 和受鉴权的私有文件目录。
 
-## 本轮修复
+保持86项公开操作、67条路径；31张表（29张业务/平台表与2张内部表，不含 Alembic 表），独立迁移 `mysql_0001`。数据库为平台配置唯一运行来源；不进行生成内容正确性自动复核。
 
-- 初始化不再导入个人模型、MCP或模型用途绑定。只创建指定管理员、八个流程提示词、四项内置技能和运行限制；管理员自行配置模型与其他MCP扩展。
-- 管理员可删除模型、MCP、提示词及Skill；采用逻辑删除。生效用途或智能体仍占用时拒绝，历史修订、凭据、任务及审计保留，稳定标识不可复用。
-- 知识库按需检索，问候和能力状态询问跳过；只有回答、习题或计划实际引用的来源才建立正式关联，无引用就不展示参考资料。
-- Exa搜索和网页读取为系统内置能力，无需管理端添加或绑定；保留原Exa配置且避免重复调用。限流、失败和无结果均有降级说明。
-- 消息增加“本次执行状态”，展示程序记录，区分已配置、发现工具、本次调用成功与失败。
-- 网址可点击并换行；要求模型以有意义的名称生成`[名称](URL)`，保留命令与代码块。旧消息原文不改写。
+## 首次安装
 
-详见[变更记录](docs/变更记录-v0.0.3.md)、[验证记录](docs/验证记录-v0.0.3.md)及[验收追踪](docs/验收追踪-v0.0.3.md)。引用归属校验及格式指令不构成结论正确性保证；不增加内容自动复核、掌握度或计划打卡。
+需要 Python 3.12、Node、uv 与已启动的 Docker Desktop。从本仓库目录执行：
 
-## 本机启动
+```powershell
+Set-Location backend
+uv sync --frozen
+Set-Location ..
+.\scripts\manage.ps1 -Command install -AdminLogin your_admin
+Set-Location frontend
+npm ci
+Set-Location ..
+.\scripts\start.ps1
+```
 
-Docker Desktop启动后，从本仓库根目录执行：
+安装命令显式创建新库并初始化管理员、提示词、Skills和限制，不预置模型、MCP或模型用途绑定。密码只写 `.local/v004/admin-bootstrap.json`。新凭据位于 `.local/v004/backend.env` 与 `infra.env`；无需覆盖旧 `backend/.env`、`infra/.env`。
+
+用户端：[本机工作台](http://127.0.0.1:5173)；管理端：[管理员登录](http://127.0.0.1:5173/admin/login)；API：[接口文档](http://127.0.0.1:8000/docs)。启动只检查安装，不执行迁移。缺少生成模型时不可创建智能体；索引需管理员配置兼容1024维嵌入模型。
+
+## 启停与存储
 
 ```powershell
 .\scripts\start.ps1
 .\scripts\stop.ps1
-# 同时停止数据库容器：
 .\scripts\stop.ps1 -Database
 ```
 
-用户端：http://127.0.0.1:5173；管理端：http://127.0.0.1:5173/admin/login；API：http://127.0.0.1:8000/docs。
-本机登录信息保存在`.local/admin-bootstrap.json`，不提交。没有管理员注册、普通账户提权、密码重置或用户删除入口。启动仅检查安装，不静默迁移数据库。
+Compose 项目固定 `study-trail-v004`，服务为 `mysql`、`chroma`，端口只绑定本机53306和58000。新私有文件、日志、PID、维护标识、备份位于 `.local/v004`。旧 PostgreSQL 容器、数据卷、原文件保留；旧私有源码快照与配置归档位于 `.local/v004/legacy-v003`，不是 MySQL 的升级输入。禁止对旧库运行新迁移或 stamp；本次不维护双栈。
 
-## 首次安装
+MySQL 保存全文、片段、定位、正式引用、任务与配置；Chroma 只保存派生向量。代次完整写入并核验后才发布，删除立即从权威检索范围排除，退休代次后台清理且保留复扫墓碑。Chroma故障记录降级，不能伪称检索成功。
 
-需要Python 3.12、Node和Docker。复制`backend/.env.example`、`infra/.env.example`为各自.env并设置相同数据库密码和随机CURSOR_SECRET。
+## 维护、备份与恢复
 
-```powershell
-Set-Location infra
-docker compose up -d --wait
-Set-Location ../backend
-uv sync --frozen
-.\.venv\Scripts\python.exe -m alembic upgrade head
-.\.venv\Scripts\python.exe tools/bootstrap_platform.py --admin-login your_admin --generate-admin
-Set-Location ../frontend
-npm ci
-```
-
-生成管理员密码仅写本机文件，不输出密码。首次登录管理端后添加模型并设置用途。空配置时可登录管理，缺少默认生成模型不能创建智能体；文件索引需要嵌入模型。普通答疑不强制依赖嵌入和重排。
-
-数据库是运行配置唯一来源，重复初始化不覆盖管理员编辑。模型/MCP JSON只供兼容解析和隔离测试，不在普通初始化中导入。主密钥环保存在后端环境PLATFORM_KEYS，真实凭据加密存库；不得替换旧密钥来修复解密错误。内置Exa使用固定匿名公共端点，可能限流，不代表总能联网。
-
-## 从0.0.2升级
-
-先暂停受理、排空任务，备份数据库、私有文件及部署密钥并独立恢复核验，再运行`alembic upgrade head`至0007。迁移仅增加配置删除状态和约束，不清空模型、账号或学习数据。演练/升级工具使用当前Alembic head：`tools/rehearse_upgrade.py`、`tools/apply_upgrade.py`。
-
-内置指南有新来源，已有库如需再次初始化或更新指南，应显式运行：
+从仓库根目录执行Windows运维入口；它使用项目匹配的Python运行时和依赖。重建会调用已配置嵌入模型并产生相应调用记录。
 
 ```powershell
-Set-Location backend
-.\.venv\Scripts\python.exe tools/bootstrap_platform.py --admin-login your_admin --refresh-guide
+.\scripts\manage.ps1 -Command check
+.\scripts\manage.ps1 -Command rebuild -All
+# 先停应用，核对预览后明确执行：
+.\scripts\manage.ps1 -Command rebuild -All -Apply
+.\scripts\manage.ps1 -Command cleanup -Apply
+.\scripts\manage.ps1 -Command backup
+.\scripts\manage.ps1 -Command restore-verify -Backup <本机备份绝对目录>
+.\scripts\manage.ps1 -Command resume
 ```
 
-这会恢复发布版指南并保留旧修订、启用状态；其他自定义提示词保留，命名链接格式在回答运行时补充。本机已经完成0007升级及重启，无需重置数据。旧0004库先用匹配0.0.1源码完成旧指纹初始化，再执行后续升级。存在删除墓碑时0007拒绝降级，避免复活配置；恢复使用匹配的备份和源码。
+Linux使用`backend/tools/vector_index.py`与`storage_maintenance.py`的对应子命令；本轮未做Linux完整运行验收。
 
-## 验证
+备份先停API、排空任务、停worker和Chroma，再保存两库、私有文件及匹配密钥；失败保留维护状态。隔离恢复会验证数据摘要、向量、文件及凭据解密，不调用付费模型。备份完成与恢复验证是两个独立状态。`restore-verify` 不覆盖日常库，隔离容器和卷停止后保留。`resume` 检查数据库与全部有效索引后才解除维护。
+
+备份含密码和密钥，使用Windows用户ACL或POSIX权限保护；不提交环境、引导文件、私有资料和备份。不要通过重新生成密钥修复已有凭据。
+
+## 测试与验证边界
 
 ```powershell
 Set-Location backend
@@ -74,10 +71,18 @@ Set-Location ..
 .\scripts\test-e2e.ps1
 ```
 
-隔离后端103项、前端32项、浏览器11项通过；类型检查、生产构建、0001→0007新安装、升级保留数据和元数据检查通过。测试库仅study_trail_test/study_trail_e2e，使用模拟提供商；真实Exa只读取过工具目录，没有执行本轮真实搜索、抓取或付费模型调用。命名链接为提示词规则，未作真实模型依从性实验。性能、内容质量、Linux完整启动及所有外部提供商组合未在本轮验证。
+隔离测试仅使用 `study_trail_test`、`study_trail_e2e` 及独立Chroma集合。测试准备以本机MySQL root凭据创建隔离库，不清空日常库。真实数据库与向量服务参与集成测试，模型提供商使用确定性替身。
 
-## 发布
+当前发布说明见[0.0.5变更与验证记录](docs/变更记录-v0.0.5.md)。存储切换结果见[0.0.4验证记录](docs/验证记录-v0.0.4.md)及[验收追踪](docs/验收追踪-v0.0.4.md)。历史v0.0.3报告与已发布标签不重写；本次没有创建Release。Linux脚本只作静态检查；性能、教育效果和真实外部模型组合不属于本轮验收结论。
 
-版本/标签：`0.0.3`，[正式Release](https://github.com/Smoke-Holmes01/study-trail/releases/tag/0.0.3)。0.0.1、0.0.2标签及原验证报告保留，不重写历史测试。第三方版本、API `/v1`和迁移编号保持独立含义。
+上级需求、设计和开题报告不在本Git仓库内。Word原件未同步，当前Markdown与技术图作为本轮存储方案说明。
 
-仓库以毕业设计目录中的src为根；上级需求分析、系统设计和原开题报告不在此Git仓库内。本机环境、密钥、登录信息、私有文件、数据库和恢复备份不上传。
+## 2026-11-01 旧代码清理
+
+旧迁移、专用运维工具、旧配置样例及一次性脚本已迁至本机外层 `历史归档/旧版代码-v0.0.1-v0.0.3/`（不随本仓库分发；可通过Git历史标签0.0.1—0.0.3追溯旧源码），不再随当前源码分发。当前模型与MCP只通过管理端配置；隔离测试使用当前平台格式的合成fixtures，不读取旧JSON或模型环境凭据。验证范围见[清理记录](docs/旧版本代码清理记录-v0.0.4.md)。
+
+如需将数据库中的内置指南显式切换为新版正文，由已有管理员在backend目录执行 `python tools/bootstrap_platform.py --admin-login <已有管理员> --refresh-guide`（使用项目Python及其依赖）。该操作会替换当前指南正文并保留历史修订和启停状态；普通启动不刷新指南。新版指南来源变化后，已有安装在再次执行初始化前需先显式刷新；本次未对日常库执行刷新。
+
+## v0.0.5 版本与存储标识
+
+应用/API/前端版本为0.0.5，关系数据库仅支持MySQL 8.4.13，Chroma 1.5.9继续作为派生向量索引；当前运行无需PostgreSQL。为保留现有安装和备份兼容，`.local/v004`、Compose项目`study-trail-v004`、迁移`mysql_0001`及备份格式版本0.0.4保持各自含义，不随应用版本改名。用户端支持手机、平板和电脑响应式布局，管理端保留原桌面布局限制。

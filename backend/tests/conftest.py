@@ -7,12 +7,13 @@ import sqlalchemy as sa
 from dotenv import dotenv_values
 
 backend = Path(__file__).parents[1]
-env = dotenv_values(backend / ".env")
+env = dotenv_values(backend.parent / ".local/v004/backend.env")
 url = sa.engine.make_url(env["DATABASE_URL"])
 os.environ["DATABASE_URL"] = url.set(database="study_trail_test").render_as_string(hide_password=False)
+os.environ["CHROMA_COLLECTION"] = "study_trail_test_chunks"
 os.environ["PLATFORM_KEYS"] = '{"test-v1":"dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISEhISE="}'
 os.environ["PLATFORM_KEY_ID"] = "test-v1"
-os.environ["STORAGE_ROOT"] = str(backend.parent / ".local/test-storage")
+os.environ["STORAGE_ROOT"] = str(backend.parent / ".local/v004/test-storage")
 
 from fastapi.testclient import TestClient
 
@@ -21,35 +22,39 @@ from study_trail.api import app
 from study_trail.config import settings
 
 
+def reset_tables(conn, names=None):
+    assert conn.engine.url.database == "study_trail_test"
+    conn.exec_driver_sql("SET FOREIGN_KEY_CHECKS=0")
+    try:
+        for name in names or [n for n in db.metadata.tables if n != "runtime_locks"]:
+            conn.exec_driver_sql(f"TRUNCATE TABLE `{name}`")
+    finally:
+        conn.exec_driver_sql("SET FOREIGN_KEY_CHECKS=1")
+
+
+
 @pytest.fixture(autouse=True)
 def isolated_database(monkeypatch):
+    from study_trail import vectors
+    try:
+        vectors.client().delete_collection(settings().chroma_collection)
+    except __import__("chromadb").errors.NotFoundError:
+        pass
+    vectors.collection(create=True)
     assert db.engine.url.database == "study_trail_test"
     with db.engine.begin() as conn:
-        conn.exec_driver_sql("TRUNCATE users, platform_configs, config_revisions, credential_versions, platform_bindings, resource_events, task_run_facts, invocation_attempts, admin_operation_logs, metric_coverage, migration_imports CASCADE")
+        reset_tables(conn)
         from study_trail.bootstrap import initialize
         initialize(conn)
         from tools.seed_test_platform import seed_test_platform
         seed_test_platform(conn)
-    caps = {
-        name: {
-            "enabled": True,
-            "supports_images": True,
-            "json_object": True,
-            "input_token_budget": 32768,
-            "max_output_tokens": 4096,
-            "max_images": 6,
-            "max_image_bytes": 62914560,
-        }
-        for name in ["gemini-3.7-flash-high", "gemini-3.8-flash-high"]
-    }
-    monkeypatch.setattr(type(settings()), "models", lambda self: caps)
     # No live built-in search connections during isolated regression.
     monkeypatch.setattr("study_trail.builtin_search.configuration", lambda: None)
 
 
 @pytest.fixture
 def client():
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with TestClient(app, raise_server_exceptions=os.environ.get("TEST_RAISE_SERVER_EXCEPTIONS") == "1") as client:
         client.headers["Origin"] = "http://127.0.0.1:5173"
         yield client
 
