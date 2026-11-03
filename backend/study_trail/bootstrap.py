@@ -105,6 +105,14 @@ def initialize(conn, actor=None):
                 },
             ),
         )
+    for stable_id, name in p.ROLE_NAMES.items():
+        if not conn.scalar(sa.select(db.platform_configs.c.id).where(db.platform_configs.c.kind == "role", db.platform_configs.c.stable_id == stable_id)):
+            allowed = {kind: list(conn.scalars(sa.select(db.platform_configs.c.stable_id).where(
+                db.platform_configs.c.kind == kind, db.platform_configs.c.enabled.is_(True), db.platform_configs.c.deleted_at.is_(None))))
+                for kind in ("mcp", "skill")}
+            p.create(conn, "role", {"stable_id": stable_id, "name": name, "enabled": True,
+                "payload": {"body": f"负责{name}，仅完成受委派任务，依据实际来源回答；不进行独立知识正确性复核。",
+                            "allowed_mcp_ids": allowed["mcp"], "allowed_skill_ids": allowed["skill"]}}, actor)
     row = imported(
         "limits:initial",
         "limits",

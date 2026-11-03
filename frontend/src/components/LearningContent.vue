@@ -1,0 +1,76 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+import Modal from './Modal.vue';
+import PlanContentEditor from './PlanContentEditor.vue';
+import { api, all, type Plan, type Attachment, type Source } from '../lib/api';
+import { clone, exerciseDraft, planError, planPayload, createWriter, answerOriginNames, type PlanContent, type LearningExercise, type ExerciseContent } from '../lib/learning';
+const write=createWriter();
+const props = defineProps<{ open: boolean; agentId: string; conversationId?: string; supportsImages?: boolean }>();
+const emit = defineEmits<{ close: []; changed: []; modifyPlan: [plan: Plan]; source: [source: Source]; task: [accepted: any, conversationId: string] }>();
+const tab = ref<'plans'|'exercises'>('plans');
+const plans = ref<Plan[]>([]), exercises = ref<LearningExercise[]>([]);
+const planId = ref(''), exerciseId = ref('');
+const plan = computed(() => plans.value.find(p => p.id === planId.value));
+const exercise = computed(() => exercises.value.find(p => p.id === exerciseId.value));
+const editingPlan = ref<PlanContent|null>(null), editingExercise = ref<ExerciseContent|null>(null);
+const creating = ref(false), busy = ref(false), loading = ref(false), error = ref(''), notice = ref('');
+const answer = ref<{ answer_text?: string|null; explanation?: string|null; origin_kind?: string; sources?: Source[] }|null>(null);
+const deleting = ref(false), renaming = ref(false), name = ref(''), feedbackOpen = ref(false), feedbackText = ref('');
+const filterPlan = ref('');
+const feedbackImages=ref<{file:File;attachment?:Attachment}[]>([]),feedbackConversation=ref('');
+let revision = 0;
+function message(e: unknown) { return e instanceof Error ? e.message : '操作失败，请重试。'; }
+function resetDrafts() { editingPlan.value=null; editingExercise.value=null; creating.value=false; deleting.value=false; renaming.value=false; feedbackOpen.value=false; feedbackText.value=''; answer.value=null; feedbackImages.value=[]; feedbackConversation.value=''; error.value=''; notice.value=''; }
+async function load() {
+ const current = ++revision; loading.value=true; error.value='';
+ try { const [p,q] = await Promise.all([all<Plan>(`/agents/${props.agentId}/plans`),all<LearningExercise>(`/agents/${props.agentId}/exercises${filterPlan.value ? '?plan_id='+encodeURIComponent(filterPlan.value) : ''}`)]); if(current!==revision) return; plans.value=p; exercises.value=q; if(!p.some(x=>x.id===planId.value)) planId.value=p[0]?.id??''; if(!q.some(x=>x.id===exerciseId.value)) exerciseId.value=q[0]?.id??''; }
+ catch(e){if(current===revision)error.value=message(e);}finally{if(current===revision)loading.value=false;}
+}
+watch(()=>[props.open,props.agentId],(_current,previous)=>{ if(previous?.[1]!==props.agentId){plans.value=[];exercises.value=[];planId.value='';exerciseId.value='';filterPlan.value='';} if(props.open&&props.agentId){ resetDrafts(); void load(); }else ++revision; });
+watch([planId,exerciseId,tab],resetDrafts);
+async function action(run:()=>Promise<void>){busy.value=true;error.value='';notice.value='';try{await run();}catch(e){error.value=message(e);}finally{busy.value=false;}}
+async function savePlan(){ if(!plan.value||!editingPlan.value)return; const issue=planError(editingPlan.value);if(issue){error.value=issue;return;} await action(async()=>{await write(`/plans/${plan.value!.id}/content`,'PUT',{expected_content_version:plan.value!.content_version,content:editingPlan.value});editingPlan.value=null;await load();notice.value='计划已保存。';emit('changed');}); }
+async function rename(){if(!plan.value)return;await action(async()=>{await write(`/plans/${plan.value!.id}`,'PATCH',{name:name.value});renaming.value=false;await load();emit('changed');});}
+async function deleteContent(){const path=tab.value==='plans'?`/plans/${plan.value?.id}`:`/exercises/${exercise.value?.id}`;await action(async()=>{await write(path,'DELETE');deleting.value=false;await load();emit('changed');notice.value='已删除，历史消息保留。';});}
+async function editExercise(){if(!exercise.value)return;await action(async()=>{const detail=await api<LearningExercise>(`/exercises/${exercise.value!.id}`);const a=await api<any>(`/exercises/${exercise.value!.id}/answer?version=${exercise.value!.content_version}`);editingExercise.value={...exerciseDraft(detail),answer_text:a.answer_text??a.answer??null,explanation:a.explanation??null,answer_source_ids:a.source_ids??[]};creating.value=false;});}
+async function saveExercise(){const draft=editingExercise.value;if(!draft?.question_text.trim()){error.value='请填写题干。';return;}await action(async()=>{ const content={...clone(draft),answer_text:draft.answer_text?.trim()||null,explanation:draft.explanation?.trim()||null};const saved=await write<LearningExercise>(creating.value?`/agents/${props.agentId}/exercises`:`/exercises/${exercise.value!.id}`,creating.value?'POST':'PATCH',creating.value?content:{...content,expected_version:exercise.value!.content_version});editingExercise.value=null;creating.value=false;await load();exerciseId.value=saved.id;notice.value='练习已保存，历史消息与反馈保持原快照。';emit('changed');});}
+async function showAnswer(){if(!exercise.value)return;await action(async()=>{const a=await api<any>(`/exercises/${exercise.value!.id}/answer?version=${exercise.value!.content_version}`);if(a.available===false){notice.value='这道题还没有答案，可在对话中请求推导。';answer.value=null;}else answer.value={answer_text:a.answer_text??a.answer,explanation:a.explanation,origin_kind:a.origin_kind,sources:a.sources??[]};});}
+async function pickFeedbackImages(event:Event){const input=event.target as HTMLInputElement;const files=Array.from(input.files??[]);input.value='';await action(async()=>{const limits=await api<any>('/runtime-limits');if(feedbackImages.value.length+files.length>limits.message_max_images)throw new Error(`每次最多 ${limits.message_max_images} 张图片。`);if(files.some(f=>f.size>limits.image_max_bytes||!['image/png','image/jpeg','image/webp'].includes(f.type)))throw new Error('请选择容量限制内的PNG、JPEG或WebP图片。');feedbackImages.value.push(...files.map(file=>({file})));});}
+async function requestTask(kind:'explanation'|'feedback') {
+ if(!exercise.value)return;
+ if(kind==='feedback'&&!feedbackText.value.trim()&&!feedbackImages.value.length){error.value='请填写作答、思路或添加图片。';return;}
+ await action(async()=>{
+  let id=props.conversationId||feedbackConversation.value;
+  if(!id){const c=await write<{id:string}>(`/agents/${props.agentId}/conversations`,'POST',{});id=c.id;feedbackConversation.value=id;}
+  const attachmentIds:string[]=[];
+  if(kind==='feedback')for(const item of feedbackImages.value){if(!item.attachment){const body=new FormData();body.append('file',item.file);item.attachment=await write<Attachment>(`/conversations/${id}/images`,'POST',body);}attachmentIds.push(item.attachment.id);}
+  const accepted=await write<any>(`/exercises/${exercise.value!.id}/${kind}-tasks`,'POST',{conversation_id:id,expected_version:exercise.value!.content_version,...(kind==='feedback'?{answer_text:feedbackText.value,...(attachmentIds.length?{attachment_ids:attachmentIds}:{})}: {})});
+  emit('task',accepted,id!);emit('close');
+ });
+}
+function linkPlan(id:string){if(!editingExercise.value)return;editingExercise.value.links=id?[{plan_id:id,stage_id:null,task_id:null}]:[];}
+const editableSources=computed(()=>{const values=[...(exercise.value?.sources??[]),...plans.value.flatMap(p=>p.sources)];return values.filter((s,i)=>values.findIndex(x=>x.id===s.id)===i);});
+function sourceLabel(s:Source){return String(s.status)==='template_not_imported'?'模板资料未导入':s.status==='deleted'?'来源已删除':s.title;}
+const linkStages=computed(()=>plans.value.find(p=>p.id===editingExercise.value?.links[0]?.plan_id)?.content.stages??[]);
+const linkTasks=computed(()=>linkStages.value.find(s=>s.id===editingExercise.value?.links[0]?.stage_id)?.tasks??[]);
+</script>
+<template>
+<Modal :open="open" title="学习内容" wide @close="emit('close')">
+ <nav class="learning-tabs" aria-label="学习内容分类"><button :class="{active:tab==='plans'}" @click="tab='plans'">学习计划</button><button :class="{active:tab==='exercises'}" @click="tab='exercises'">练习集</button></nav>
+ <p v-if="error" class="learning-error" role="alert">{{error}}</p><p v-if="notice" class="learning-message" role="status">{{notice}}</p>
+ <p v-if="loading" role="status">正在载入学习内容…</p><button v-if="error && !busy" @click="load">重新载入列表（保留编辑草稿）</button>
+ <div v-if="tab==='plans'" class="learning-grid"><aside class="learning-list"><button v-for="p in plans" :key="p.id" :class="{active:p.id===planId}" @click="planId=p.id">{{p.name}}</button></aside><section class="learning-detail">
+  <p v-if="!plans.length&&!loading" class="learning-empty">还没有计划。可以在对话中生成，也可以采用学习模板。</p>
+  <template v-if="plan"><div class="learning-row"><h3>{{plan.name}}</h3><span class="learning-tag">v{{plan.content_version}} · {{(plan as any).user_edited?'用户已编辑':''}}</span></div>
+   <form v-if="editingPlan" @submit.prevent="savePlan"><PlanContentEditor :value="editingPlan" :sources="plan.sources.map(s=>({id:s.id,title:s.title}))" :disabled="busy"/><p class="muted">删除阶段或任务会解除对应练习的关联，练习仍然保留。</p><div class="learning-actions"><button class="primary" :disabled="busy">保存计划</button><button type="button" :disabled="busy" @click="editingPlan=null;error=''">取消编辑</button></div></form>
+   <template v-else><p>{{plan.content.goal}}</p><p v-if="plan.content.deadline">截止日期：{{plan.content.deadline}}</p><section v-for="s in plan.content.stages" :key="s.id" class="learning-card"><h4>{{s.title}}</h4><p>{{s.goal}}</p><p>{{s.knowledge_points.join('、')}}</p><div v-for="t in s.tasks" :key="t.id" class="learning-task"><b>{{t.title}}</b> · {{t.estimated_minutes}} 分钟<p v-for="tip in t.exercise_suggestions" :key="tip">{{tip}}</p></div></section><div class="learning-actions"><button :disabled="busy" @click="editingPlan=planPayload(plan)">直接编辑</button><button :disabled="busy" @click="emit('modifyPlan',plan)">在对话中修改</button><button :disabled="busy" @click="renaming=true;name=plan.name">重命名</button><button :disabled="busy" @click="deleting=true">删除计划</button></div></template>
+   <div class="sources"><button v-for="source in plan.sources" :key="source.id" :disabled="String(source.status)==='template_not_imported'||source.status==='deleted'" @click="emit('source',source)">{{source.title}} · {{sourceLabel(source)}}</button></div><form v-if="renaming" class="learning-form" @submit.prevent="rename"><label>计划名称<input v-model="name" required maxlength="50" /></label><button :disabled="busy">保存名称</button> <button type="button" @click="renaming=false">取消</button></form>
+  </template></section></div>
+ <template v-else><div class="learning-row"><label>关联计划 <select v-model="filterPlan" :disabled="busy" @change="load"><option value="">全部练习</option><option v-for="p in plans" :key="p.id" :value="p.id">{{p.name}}</option></select></label><button :disabled="busy" @click="editingExercise=exerciseDraft();creating=true;deleting=false;answer=null">添加练习</button></div>
+ <div class="learning-grid"><aside class="learning-list"><button v-for="(e,i) in exercises" :key="e.id" :class="{active:e.id===exerciseId}" @click="exerciseId=e.id">{{i+1}}. {{e.question_text.slice(0,48)}}</button></aside><section class="learning-detail">
+ <form v-if="editingExercise" class="learning-form" @submit.prevent="saveExercise"><h3>{{creating?'新增练习':'编辑练习'}}</h3><label>题干<textarea v-model="editingExercise.question_text" rows="5" required :disabled="busy" /></label><label>参考答案（可选）<textarea v-model="editingExercise.answer_text" rows="3" :disabled="busy" /></label><label>解析（可选）<textarea v-model="editingExercise.explanation" rows="3" :disabled="busy" /></label><label>关联计划（可选）<select :value="editingExercise.links[0]?.plan_id??''" @change="linkPlan(($event.target as HTMLSelectElement).value)"><option value="">独立练习</option><option v-for="p in plans" :key="p.id" :value="p.id">{{p.name}}</option></select></label><template v-if="editingExercise.links[0]"><label>阶段<select v-model="editingExercise.links[0].stage_id" @change="editingExercise.links[0].task_id=null"><option :value="null">整个计划</option><option v-for="s in linkStages" :key="s.id" :value="s.id">{{s.title}}</option></select></label><label v-if="editingExercise.links[0].stage_id">任务<select v-model="editingExercise.links[0].task_id"><option :value="null">整个阶段</option><option v-for="t in linkTasks" :key="t.id" :value="t.id">{{t.title}}</option></select></label></template><fieldset v-if="editableSources.length"><legend>资料引用</legend><label v-for="source in editableSources" :key="source.id" class="check-row"><input v-model="editingExercise.source_ids" type="checkbox" :value="source.id" />{{source.title}} · {{sourceLabel(source)}}</label></fieldset><p class="muted">保存后标记为用户编辑，不会改写历史题目与反馈。</p><div class="learning-actions"><button class="primary" :disabled="busy">保存练习</button><button type="button" :disabled="busy" @click="editingExercise=null;creating=false;error=''">取消编辑</button></div></form>
+ <template v-else-if="exercise"><p class="learning-tag">v{{exercise.content_version}} · {{exercise.user_edited?'用户已编辑':exercise.origin_kind==='template'?'模板预置':exercise.provenance==='original'?'资料原题':exercise.provenance==='adapted'?'改编题':'AI生成题'}}</p><div class="learning-preview">{{exercise.question_text}}</div><div class="sources"><button v-for="source in exercise.sources??[]" :key="source.id" :disabled="String(source.status)==='template_not_imported'||source.status==='deleted'" @click="emit('source',source)">{{source.title}} · {{sourceLabel(source)}}</button></div><div class="learning-actions"><button :disabled="busy" @click="showAnswer">查看答案与解析</button><button :disabled="busy" @click="requestTask('explanation')">在对话中请求解析</button><button :disabled="busy" @click="feedbackOpen=!feedbackOpen">提交作答</button><button :disabled="busy" @click="editExercise">编辑练习</button><button :disabled="busy" @click="deleting=true">删除练习</button></div><div v-if="answer" class="learning-answer"><b>{{answerOriginNames[answer.origin_kind??'']??'参考答案'}}</b><p>{{answer.answer_text}}</p><p>{{answer.explanation}}</p><div class="sources"><button v-for="source in answer.sources??[]" :key="source.id" :disabled="String(source.status)==='template_not_imported'||source.status==='deleted'" @click="emit('source',source)">{{source.title}} · {{sourceLabel(source)}}</button></div></div><form v-if="feedbackOpen" class="learning-form" @submit.prevent="requestTask('feedback')"><label>我的作答或思路<textarea v-model="feedbackText" rows="4" :disabled="busy" /></label><label v-if="supportsImages">作答图片（可选）<input type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="busy" @change="pickFeedbackImages" /></label><p v-else class="muted">当前生成模型不支持图片，可切换到支持图片的模型后提交。</p><ul><li v-for="(item,i) in feedbackImages" :key="i">{{item.file.name}} <button type="button" :disabled="busy" @click="feedbackImages.splice(i,1)">移除图片</button></li></ul><button class="primary" :disabled="busy">发送到对话并获取单题反馈</button></form></template>
+ <p v-else-if="!loading" class="learning-empty">还没有练习。可手动添加、在对话中获取或采用模板。</p></section></div></template>
+ <div v-if="deleting" class="learning-error" role="alert"><p>{{tab==='plans'?'删除计划会解除练习关联，保留练习与历史消息。':'删除练习保留历史消息及反馈快照。'}}确定删除？</p><button :disabled="busy" @click="deleteContent">确认删除</button> <button :disabled="busy" @click="deleting=false">取消</button></div>
+</Modal>
+</template>

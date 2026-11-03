@@ -128,6 +128,11 @@ for (const [width, height] of sizes)
             ],
             next_cursor: null,
           };
+        else if (path === "/agent-templates") data={items:[{id:"template",name:"响应式学习模板",description:"模板说明",version_id:"version"}],next_cursor:null};
+        else if (path === "/agent-templates/template/versions/version") data={id:"template",name:"响应式学习模板",description:"模板说明",version_id:"version",config_choices:{system_prompt:"模板学习职责",model_id:"fixture",mcp_server_ids:[],skill_ids:[]},plan:{title:"模板计划",goal:"理解矩阵",deadline:null,stages:[]},exercises:[{question_text:"单位矩阵的作用？",source_ids:[],links:[]}],asset_manifest:[]};
+        else if (path === "/exercises/exercise") data={id:"exercise",question_text:"矩阵乘法需要满足什么条件？",content_version:1,links:[],source_ids:[],sources:[]};
+        else if (path === "/exercises/exercise/answer") data={exercise_id:"exercise",version:1,available:true,answer_text:"左矩阵列数等于右矩阵行数",explanation:"内维度相等",origin_kind:"template"};
+        else if (path.endsWith("/exercises")) data = { items: [{id:"exercise",question_text:"矩阵乘法需要满足什么条件？",content_version:1,links:[],source_ids:[],sources:[]}], next_cursor: null };
         else if (path.endsWith("/plans"))
           data = {
             items: [
@@ -135,7 +140,7 @@ for (const [width, height] of sizes)
                 id: "plan",
                 name: "测试学习计划",
                 content_version: 1,
-                content: { goal: "建立学习基础", stages: [] },
+                content: { goal: "建立学习基础", deadline:null, stages: [{id:"stage",title:"矩阵阶段",goal:"掌握维度",knowledge_points:["维度"],tasks:[{id:"plan-task",title:"练习乘法",estimated_minutes:30,resource_source_ids:[],exercise_suggestions:["判断维度是否匹配"]}]}] },
                 sources: [],
               },
             ],
@@ -218,15 +223,34 @@ for (const [width, height] of sizes)
       await page.getByRole("button", { name: "选择生成模型", exact: true }).click();
       await expect(page.getByRole("listbox", { name: "可用模型" })).toBeVisible();
       await page.keyboard.press("Escape");
-      await page.getByRole("button", { name: "学习计划", exact: true }).click();
+      await page.getByRole("button", { name: "学习内容", exact: true }).click();
       if (width < 768 || (width < 1024 && height <= 500)) {
         await page.getByRole("button", { name: /测试学习计划/ }).click();
         await expect(
           page.getByText("建立学习基础", { exact: true }),
         ).toBeVisible();
-        await page.getByRole("button", { name: "返回计划列表" }).click();
+
       }
+      const learning=page.getByRole("dialog",{name:"学习内容",exact:true});
+      await learning.getByRole("button",{name:"直接编辑",exact:true}).click();
+      await expect(learning.getByLabel("学习目标",{exact:true})).toHaveValue("建立学习基础");
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+      await page.screenshot({path:info.outputPath("plan-editor.png")});
+      await learning.getByRole("button",{name:"取消编辑",exact:true}).click();
+      await learning.getByRole("button",{name:"练习集",exact:true}).click();
+      await learning.getByRole("button",{name:"编辑练习",exact:true}).click();
+      await expect(learning.getByLabel("题干",{exact:true})).toHaveValue("矩阵乘法需要满足什么条件？");
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+      await page.screenshot({path:info.outputPath("exercise-editor.png")});
       await page.getByRole("button", { name: "关闭弹窗" }).click();
+      if(width<1024)await page.getByRole("button",{name:"展开资源栏",exact:true}).click();
+      await page.getByRole("button",{name:"创建智能体",exact:true}).click();
+      await page.getByRole("button",{name:"响应式学习模板",exact:true}).click();
+      await expect(page.getByRole("dialog",{name:"响应式学习模板",exact:true})).toBeVisible();
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+      await page.screenshot({path:info.outputPath("template-preview.png")});
+      await page.getByRole("button", { name: "关闭弹窗" }).click();
+      if(width<1024&&await page.getByRole("button",{name:"关闭资源列表",exact:true}).isVisible())await page.getByRole("button",{name:"关闭资源列表",exact:true}).click();
       await page.screenshot({ path: info.outputPath("workspace.png") });
       await page.setViewportSize({
         width: width >= 1024 ? 440 : 1180,

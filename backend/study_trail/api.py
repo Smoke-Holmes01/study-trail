@@ -46,7 +46,7 @@ async def lifespan(app):
         pass
 
 
-app = FastAPI(title="学迹 Study Trail", version="0.0.5", lifespan=lifespan)
+app = FastAPI(title="学迹 Study Trail", version="0.1.0", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 
@@ -427,7 +427,8 @@ def converter(conn, t, row):
     if t is db.learning_plans:
         return c.plan(conn, row)
     if t is db.exercises:
-        return c.exercise(row)
+        from .learning_content import exercise_dto
+        return exercise_dto(conn, row)
     if t is db.tasks:
         return c.task(conn, row)
     return c.public(
@@ -540,7 +541,7 @@ rename_route("/plans/{plan_id}", db.learning_plans, "P-03")
 rename_route("/knowledge-bases/{knowledge_base_id}", db.knowledge_bases, "K-04")
 
 
-def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
+def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None, feedback=None, answer_version=None):
     initial = c.require(db.one(conn, db.conversations, conversation_id, owner))
     agent = c.require(db.one(conn, db.agents, initial["agent_id"], owner, lock=True))
     conversation = c.require(db.one(conn, db.conversations, conversation_id, owner, lock=True))
@@ -551,6 +552,17 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
     ).first():
         raise c.Problem("CONVERSATION_BUSY", "此对话正在处理请求，请等待或停止当前任务", 409)
     config = c.agent_config(conn, agent)
+    exercise_revision_id, exercise_snapshot = None, None
+    bound_exercise = answer or feedback
+    if bound_exercise:
+        if bound_exercise["owner_id"] != owner or bound_exercise["agent_id"] != agent["id"]:
+            raise c.Problem("RESOURCE_NOT_FOUND", "题目不属于当前智能体", 404)
+        exercise_revision_id, exercise_snapshot = c.freeze_exercise(conn, bound_exercise, answer_version)
+        if answer_version is not None:
+            exercise_snapshot["historical_request"] = True
+    elif previous:
+        exercise_revision_id = previous.get("exercise_revision_id")
+        exercise_snapshot = previous["input_snapshot"].get("exercise_snapshot")
     if len(body.attachment_ids) > config["limits"]["message_max_images"]:
         raise c.Problem("VALIDATION_ERROR", "图片数量超过当前平台限制", 422)
     skill = None
@@ -617,6 +629,8 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
             content_text=body.content_text,
             skill={k: skill[k] for k in ("id", "name", "description")} if skill else None,
             answer_exercise_id=answer["id"] if answer else None,
+            exercise_revision_id=exercise_revision_id,
+            exercise_snapshot=exercise_snapshot,
         )
         seq += 1
         attempt = 1
@@ -642,9 +656,14 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
         if previous
         else None,
         "target_plan": target,
+        "exercise_snapshot": exercise_snapshot,
     }
+    if feedback:
+        inp["feedback_exercise_id"] = str(feedback["id"])
     if previous and previous["input_snapshot"].get("feedback_exercise_id"):
         inp["feedback_exercise_id"] = previous["input_snapshot"]["feedback_exercise_id"]
+    if previous and previous["input_snapshot"].get("dispatch_exercise_id"):
+        inp["dispatch_exercise_id"] = previous["input_snapshot"]["dispatch_exercise_id"]
     t = db.insert(
         conn,
         db.tasks,
@@ -660,6 +679,8 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
         previous_task_id=previous["id"] if previous else None,
         input_snapshot=inp,
         config_snapshot=jsonable_encoder(config),
+        exercise_revision_id=exercise_revision_id,
+        exercise_snapshot=exercise_snapshot,
     )
     assistant = db.insert(
         conn,
@@ -673,6 +694,8 @@ def accept_chat(conn, owner, conversation_id, body, previous=None, answer=None):
         user_message_id=user_message["id"],
         task_id=t["id"],
         response_status="queued",
+        exercise_revision_id=exercise_revision_id,
+        exercise_snapshot=exercise_snapshot,
     )
     t = db.update(conn, db.tasks, t["id"], assistant_message_id=assistant["id"])
     db.update(
@@ -746,13 +769,16 @@ def retry(message_id: UUID, body: s.Retry, request: Request, ctx=D):
 def answer(exercise_id: UUID, body: s.Empty, request: Request, ctx=D):
     conn, user, _ = ctx
     e = c.require(db.one(conn, db.exercises, exercise_id, user["id"]))
-    msg = s.Send(content_text=f"请展示这道题的答案和解析（题目标识 {exercise_id}）：\n{e['question_text']}")
+    if not e["conversation_id"]:
+        raise c.Problem("CONVERSATION_REQUIRED", "独立练习请从学习内容中选择对话后请求解析", 409)
+    _, snapshot = c.freeze_exercise(conn, e, version=1)
+    msg = s.Send(content_text=f"请展示这道题的答案和解析（题目标识 {exercise_id}）：\n{snapshot['question_text']}")
     return c.idem(
         conn,
         request,
         user["id"],
         {},
-        lambda: accept_chat(conn, user["id"], e["conversation_id"], msg, answer=e),
+        lambda: accept_chat(conn, user["id"], e["conversation_id"], msg, answer=e, answer_version=1),
     )
 
 
@@ -968,7 +994,12 @@ def allowed_source(conn, ident, owner):
             db.plan_sources.c.source_id == ident, db.plan_sources.c.owner_id == owner
         )
     ).first()
-    if not has_message and not has_plan:
+    has_exercise = conn.execute(sa.select(db.exercise_sources.c.source_id)
+        .join(db.exercise_revisions, db.exercise_revisions.c.id == db.exercise_sources.c.revision_id)
+        .join(db.exercises, db.exercises.c.id == db.exercise_revisions.c.exercise_id)
+        .where(db.exercise_sources.c.source_id == ident, db.exercise_sources.c.owner_id == owner,
+               db.exercise_revisions.c.owner_id == owner, db.exercises.c.owner_id == owner)).first()
+    if not has_message and not has_plan and not has_exercise:
         raise c.Problem("RESOURCE_NOT_FOUND", "来源不可访问", 404)
     return row
 
@@ -1056,6 +1087,8 @@ def source(source_id: UUID, ctx=D):
 @app.get(PREFIX + "/sources/{source_id}/preview", operation_id="S-02")
 def source_preview(source_id: UUID, cursor: str | None = None, limit: int = Query(20, ge=1, le=100), ctx=D):
     row = allowed_source(ctx[0], source_id, ctx[1]["id"])
+    if row["kind"] == "template_placeholder":
+        raise c.Problem("TEMPLATE_SOURCE_NOT_IMPORTED", "模板资料未导入，不能预览原资料", 409)
     if row["kind"] != "file":
         raise c.Problem("SOURCE_NOT_INTERNAL", "网络来源请打开原网页")
     if not row["file_id"]:
@@ -1328,4 +1361,10 @@ def runtime_limits(ctx=D):
     values = limits(ctx[0])
     return c.envelope({**{key: values[key] for key in ("file_max_bytes", "batch_max_files", "image_max_bytes", "message_max_images")}, "model_readiness": model_readiness(ctx[0])})
 
+from .learning_content import register as register_learning_content
+from .roles import register as register_roles
+from .templates import register as register_templates
+register_learning_content(app)
+register_roles(app)
+register_templates(app)
 install(app)

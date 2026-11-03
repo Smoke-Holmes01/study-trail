@@ -138,7 +138,14 @@ async def test_real_knowledge_retrieval_keeps_only_cited_chunk(client, resource,
                 value["retrieval_mode"]="knowledge"
             return value
         async def complete(self,messages,**kwargs):
-            ids=re.findall(r'"id": "([0-9a-f-]{36})"',"\n".join(m["content"] for m in messages if isinstance(m["content"],str)))
+            context="\n".join(m["content"] for m in messages if isinstance(m["content"],str))
+            if self.task.get("role_run_id"):
+                ids=re.findall(r'"id": "([0-9a-f-]{36})"',context)
+            else:
+                # The supervisor sees the role's cited explanation, rather than
+                # the private raw retrieval context. Preserve that actual cite.
+                ids=re.findall(r'source:([0-9a-f-]{36})',context)
+            assert ids, "The role or supervisor must receive the real citation"
             answer=f"矩阵有行和列。[课程](source:{ids[0]})"
             if kwargs.get("on_chunk"):
                 await kwargs["on_chunk"](answer)

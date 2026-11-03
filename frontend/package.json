@@ -1,14 +1,14 @@
 {
   "name": "study-trail-ui",
   "private": true,
-  "version": "0.0.5",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc -b && vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "types": "openapi-typescript ../.local/v004/openapi.json -o src/generated/api.ts"
+    "types": "openapi-typescript ../.local/v010-verify/openapi.json -o src/generated/api.ts"
   },
   "dependencies": {
     "katex": "^0.16.22",

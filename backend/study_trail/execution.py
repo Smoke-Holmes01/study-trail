@@ -17,6 +17,15 @@ def terminal(conn, row, status, code=None, message=None, result=None):
     if status in {"failed", "stopped"}:
         from .vectors import retire
         retire(conn, task=row)
+        if hasattr(db, "task_role_runs"):
+            conn.execute(db.task_role_runs.update().where(
+                db.task_role_runs.c.task_id == row["id"],
+                db.task_role_runs.c.status == "running",
+            ).values(status="stopped" if status == "stopped" else "failed", error_code=code,
+                     finished_at=db.now()))
+            conn.execute(db.task_role_runs.update().where(
+                db.task_role_runs.c.task_id == row["id"], db.task_role_runs.c.status == "queued",
+            ).values(status="skipped", error_code=code, finished_at=db.now()))
     row = db.update(
         conn,
         db.tasks,
@@ -32,6 +41,17 @@ def terminal(conn, row, status, code=None, message=None, result=None):
         db.update(conn, db.messages, row["assistant_message_id"], response_status=status)
     if row["file_id"] and status == "failed":
         db.update(conn, db.files, row["file_id"], status="failed", error_code=code, error_message=message)
+        from .templates import refresh_imports
+        refresh_imports(conn, row["file_id"])
+    if row["kind"] == "template_import" and status in {"failed", "stopped"}:
+        from .templates import fail_import
+        fail_import(conn, row, code or "IMPORT_FAILED")
+    if row["kind"] == "template_asset_process" and status in {"failed", "stopped"}:
+        from uuid import UUID
+        asset_id = row["input_snapshot"].get("asset_id")
+        if asset_id:
+            conn.execute(db.template_assets.update().where(db.template_assets.c.id == UUID(str(asset_id)))
+                .values(status="failed", error_code=code or "CANCELLED"))
     return row
 
 
@@ -73,7 +93,7 @@ def claim(worker_id, task_id=None):
         # Global capacity, also when another independent worker is launched.
         db.transaction_lock(conn, "capacity")
         ai = ["chat", "prompt_generate", "prompt_polish"]
-        files = ["file_process", "storage_cleanup"]
+        files = ["file_process", "storage_cleanup", "template_asset_process", "template_import"]
 
         def count(kinds):
             return conn.execute(
@@ -155,6 +175,40 @@ def publish(task, phase=None, text=None, sources=None):
         db.update(conn, db.tasks, row["id"], **data)
 
 
+def role_runs(conn, task_id):
+    """Only execution facts cross the private role-state boundary."""
+    if not hasattr(db, "task_role_runs"):
+        return []
+    rows = conn.execute(sa.select(db.task_role_runs)
+        .where(db.task_role_runs.c.task_id == task_id)
+        .order_by(db.task_role_runs.c.step_no)).mappings()
+    return [{"role": r["role"], "step_no": r["step_no"], "status": r["status"],
+             "phase": r["phase"], "started_at": r["started_at"], "finished_at": r["finished_at"],
+             "error_code": r["error_code"], "degradation": r["degradation"]} for r in rows]
+
+
+def role_progress(task, ident, status=None, phase=None, degradation=None, error_code=None):
+    with db.engine.begin() as conn:
+        parent = assert_claim(conn, task)
+        values = {}
+        if status:
+            values["status"] = status
+            if status == "running":
+                values["started_at"] = db.now()
+            elif status in {"succeeded", "failed", "stopped", "skipped"}:
+                values["finished_at"] = db.now()
+        if phase:
+            values["phase"] = phase
+        if degradation is not None:
+            values["degradation"] = degradation
+        if error_code is not None:
+            values["error_code"] = error_code
+        conn.execute(db.task_role_runs.update().where(
+            db.task_role_runs.c.id == ident, db.task_role_runs.c.task_id == parent["id"]
+        ).values(**values))
+        db.update(conn, db.tasks, parent["id"], revision=parent["revision"] + 1)
+
+
 async def run_task(task):
     from .files import chunks, extract
     from .providers import Gateway
@@ -165,6 +219,12 @@ async def run_task(task):
             return await run_chat(task)
         if task["kind"].startswith("prompt_"):
             return await run_prompt(task)
+        if task["kind"] == "template_asset_process":
+            from .templates import process_asset
+            return await process_asset(task)
+        if task["kind"] == "template_import":
+            from .templates import process_import
+            return await process_import(task)
         if task["kind"] == "storage_cleanup":
             await asyncio.to_thread(
                 c.storage_path(task["input_snapshot"]["storage_key"]).unlink, missing_ok=True
@@ -225,6 +285,8 @@ async def run_task(task):
                 error_message=None,
             )
             terminal(conn, current, "succeeded", result={"file_id": str(row["id"])})
+            from .templates import refresh_imports
+            refresh_imports(conn, row["id"])
 
     execution = asyncio.create_task(work())
 

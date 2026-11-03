@@ -56,6 +56,8 @@ blob-report/
 !/backend/tools/freeze_mysql_baseline.py
 !/backend/tools/local_runtime.py
 !/backend/tools/setup_local.py
+!/backend/tools/setup_verify.py
+!/backend/tools/reset_verify.py
 !/backend/tools/vector_index.py
 !/backend/tools/manage_runtime.py
 !/backend/tools/storage_maintenance.py

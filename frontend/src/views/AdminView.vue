@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import RoleExecutionStats from "../components/RoleExecutionStats.vue";
 import {
   Activity,
   Users,
@@ -9,6 +10,7 @@ import {
   Sparkles,
   Plug,
   Bot,
+  BookOpen,
   Files,
   ListChecks,
   Settings,
@@ -25,6 +27,8 @@ import { ApiError } from "../lib/api";
 import { safeErrorReason } from "../lib/safe-errors";
 import { useAdmin } from "../stores/admin";
 import AdminConfigForm from "../components/AdminConfigForm.vue";
+import AdminLearning from "../components/AdminLearning.vue";
+import RoleRuns from "../components/RoleRuns.vue";
 const route = useRoute();
 const router = useRouter();
 const admin = useAdmin();
@@ -35,6 +39,8 @@ const nav = [
   { id: "prompts", label: "平台提示词", icon: FileText },
   { id: "skills", label: "Skills", icon: Sparkles },
   { id: "mcp", label: "MCP 服务", icon: Plug },
+  { id: "roles", label: "子智能体配置", icon: Bot },
+  { id: "agent-templates", label: "智能体模板", icon: BookOpen },
   { id: "agents", label: "智能体概况", icon: Bot },
   { id: "file-runs", label: "资源处理", icon: Files },
   { id: "task-runs", label: "学习任务", icon: ListChecks },
@@ -42,6 +48,7 @@ const nav = [
   { id: "operation-logs", label: "操作日志", icon: ScrollText },
 ];
 const section = computed(() => String(route.params.section || "overview"));
+const learningSection = computed(() => ["roles", "agent-templates"].includes(section.value));
 const title = computed(
   () => nav.find((n) => n.id === section.value)?.label ?? "概览与统计",
 );
@@ -196,7 +203,9 @@ async function load(next: string | null = null) {
   error.value = "";
   try {
     const pageSection = section.value;
-    if (pageSection === "overview") {
+    if (["roles", "agent-templates"].includes(pageSection)) {
+      return;
+    } else if (pageSection === "overview") {
       const query = interval().toString();
       const results = await Promise.all([
         adminApi(`/reports/usage?${query}`),
@@ -529,7 +538,7 @@ const ordinaryList = computed(() =>
       <header class="admin-topbar">
         <span>管理端 / {{ title }}</span>
         <div>
-          <span class="admin-version">v0.0.4</span
+          <span class="admin-version">v0.1.0</span
           ><button
             class="icon"
             :aria-label="dark ? '切换明亮主题' : '切换暗色主题'"
@@ -563,6 +572,7 @@ const ordinaryList = computed(() =>
             }}
           </button>
         </div>
+        <AdminLearning v-if="learningSection" :key="section" :section="section" />
         <p v-if="notice" class="admin-success" role="status">{{ notice }}</p>
         <div v-if="error" class="admin-error" role="alert">
           {{ error
@@ -571,7 +581,7 @@ const ordinaryList = computed(() =>
           </button>
         </div>
         <form
-          v-if="section !== 'settings'"
+          v-if="section !== 'settings' && !learningSection"
           class="admin-filters"
           @submit.prevent="search"
         >
@@ -694,6 +704,7 @@ const ordinaryList = computed(() =>
             </article>
           </div>
           <div class="admin-report-grid">
+            <RoleExecutionStats :report="taskReport" />
             <section class="admin-card">
               <h2>任务状态 · 所选期间</h2>
               <div
@@ -774,7 +785,7 @@ const ordinaryList = computed(() =>
           </form>
         </section>
         <section
-          v-if="section !== 'overview' && section !== 'settings'"
+          v-if="section !== 'overview' && section !== 'settings' && !learningSection"
           class="admin-table-panel"
         >
           <div class="admin-table-scroll">
@@ -1041,6 +1052,7 @@ const ordinaryList = computed(() =>
           </div>
           <button aria-label="关闭详情" @click="selectedTask = null">×</button>
         </header>
+        <RoleRuns :runs="selectedTask.role_runs" />
         <dl class="admin-details">
           <dt>任务标识</dt>
           <dd>{{ selectedTask.task_id }}</dd>

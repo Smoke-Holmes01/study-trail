@@ -24,7 +24,10 @@ def prepare(name="study_trail_test"):
         conn.exec_driver_sql(f"CREATE DATABASE IF NOT EXISTS `{name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin")
         conn.exec_driver_sql(f"GRANT ALL PRIVILEGES ON `{name}`.* TO 'study_trail'@'%%'")
     admin.dispose()
-    env = {**os.environ, "DATABASE_URL": url.set(database=name).render_as_string(hide_password=False),
+    from study_trail.config import ENV_FILE
+    env = {**os.environ, "STUDY_TRAIL_ENV_FILE": str(ENV_FILE), "RUNTIME_ROOT": str(LOCAL),
+           "CHROMA_HOST": settings().chroma_host, "CHROMA_PORT": str(settings().chroma_port),
+           "DATABASE_URL": url.set(database=name).render_as_string(hide_password=False),
            "CHROMA_COLLECTION": name + "_chunks", "PYTHONUTF8": "1"}
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=Path(__file__).parents[1], env=env, check=True)
     subprocess.run([sys.executable, "tools/vector_index.py", "init", "--apply"], cwd=Path(__file__).parents[1], env=env, check=True)

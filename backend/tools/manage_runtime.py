@@ -25,7 +25,7 @@ def matching(entry):
         process = psutil.Process(entry["id"])
         expected = entry.get("started_at")
         expected = datetime.fromisoformat(expected).timestamp() if isinstance(expected, str) else expected
-        if os.path.normcase(process.exe()) != os.path.normcase(entry["path"]) or expected is None or abs(process.create_time() - expected) > .02:
+        if os.path.normcase(os.path.realpath(process.exe())) != os.path.normcase(os.path.realpath(entry["path"])) or expected is None or abs(process.create_time() - expected) > .02:
             raise RuntimeError("Recorded process identity changed; refusing to operate on reused PID")
         return process
     except psutil.NoSuchProcess:
@@ -44,7 +44,12 @@ def writer_processes():
         try:
             command = process.info["cmdline"] or []
             if any(item in {"study_trail.api:app", "study_trail.execution", "tools.e2e_app:app", "tools/e2e_app.py"} for item in command) and Path(process.cwd()).resolve() == backend:
-                result.append(process)
+                environment = process.environ()
+                runtime = environment.get("RUNTIME_ROOT")
+                env_file = environment.get("STUDY_TRAIL_ENV_FILE")
+                identity = Path(runtime).resolve() if runtime else (Path(env_file).resolve().parent if env_file else (backend.parent / ".local/v004").resolve())
+                if identity == LOCAL.resolve():
+                    result.append(process)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return result
@@ -81,13 +86,35 @@ def record(name, pid):
     (LOCAL / "processes.json").write_text(json.dumps(result), encoding="utf-8")
 
 
+def stop_e2e():
+    registry = LOCAL / "e2e-processes.json"
+    if not registry.exists():
+        return
+    decoded = json.loads(registry.read_text(encoding="utf-8-sig"))
+    for entry in decoded if isinstance(decoded, list) else [decoded]:
+        process = matching(entry)
+        if process:
+            children = process.children(recursive=True)
+            for candidate in [*reversed(children), process]:
+                try:
+                    candidate.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+            _, alive = psutil.wait_procs([*children, process], timeout=10)
+            if alive:
+                raise RuntimeError("E2E processes did not stop; retaining registry")
+    registry.write_text("[]", encoding="utf-8")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["stop", "record", "status"])
+    parser.add_argument("command", choices=["stop", "stop-e2e", "record", "status"])
     parser.add_argument("--role", choices=["api", "worker", "frontend"])
     parser.add_argument("--pid", type=int)
     args = parser.parse_args()
-    if args.command == "stop":
+    if args.command == "stop-e2e":
+        stop_e2e()
+    elif args.command == "stop":
         stop([args.role] if args.role else None)
     elif args.command == "record":
         if not args.role or not args.pid:

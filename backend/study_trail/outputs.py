@@ -94,7 +94,7 @@ class AdminUserDTO(BaseModel):
 
 class AdminConfigDTO(BaseModel):
     id: UUID
-    kind: Literal["model", "prompt", "skill", "mcp", "limits"]
+    kind: Literal["model", "prompt", "skill", "mcp", "limits", "role"]
     stable_id: str
     name: str
     description: str
@@ -170,6 +170,7 @@ class TaskRunMetaDTO(BaseModel):
     resource_deleted: bool
     model_calls: int
     tool_calls: int
+    role_runs: list["RoleRunDTO"] = Field(default_factory=list)
 
 
 class FileRunMetaDTO(TaskRunMetaDTO):
@@ -180,6 +181,7 @@ class FileRunMetaDTO(TaskRunMetaDTO):
 class InvocationMetaDTO(BaseModel):
     id: UUID
     task_id: UUID | None
+    role_run_id: UUID | None = None
     purpose: str
     category: Literal["model", "mcp_tool"]
     model_kind: str | None
@@ -231,6 +233,8 @@ class TasksReportDTO(BaseModel):
     coverage: MetricDTO
     by_kind: dict[str, int]
     by_action: dict[str, int]
+    role_execution_counts: dict[str, int] = Field(default_factory=dict)
+    total_role_runs: int = 0
 
 
 class CallsReportDTO(BaseModel):
@@ -303,6 +307,7 @@ class AgentDTO(BaseModel):
     skill_ids: list[str]
     knowledge_base_ids: list[UUID]
     latest_conversation_id: UUID | None
+    adoption_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -330,9 +335,9 @@ class AttachmentDTO(BaseModel):
 
 class SourceDTO(BaseModel):
     id: UUID
-    kind: Literal["file", "web"]
+    kind: Literal["file", "web", "template_placeholder"]
     title: str
-    status: Literal["available", "deleted", "external"]
+    status: Literal["available", "deleted", "external", "template_not_imported"]
     file_id: UUID | None
     url: str | None
     locator: dict[str, Any] | None
@@ -342,12 +347,29 @@ class SourceDTO(BaseModel):
 
 class ExerciseDTO(BaseModel):
     id: UUID
-    message_id: UUID
-    conversation_id: UUID
+    message_id: UUID | None
+    conversation_id: UUID | None
     position: int
     question_text: str
     provenance: Literal["original", "adapted", "generated"]
     source_ids: list[UUID]
+    agent_id: UUID | None = None
+    current_revision_id: UUID | None = None
+    content_version: int = 1
+    origin_kind: str = "generated"
+    user_edited: bool = False
+    adoption_id: UUID | None = None
+
+
+class RoleRunDTO(BaseModel):
+    role: Literal["plan", "tutor", "exercise", "explanation", "feedback"]
+    step_no: int
+    status: Literal["queued", "running", "succeeded", "failed", "stopped", "skipped"]
+    phase: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_code: str | None = None
+    degradation: list[str] = Field(default_factory=list)
 
 
 class MessageDTO(BaseModel):
@@ -366,6 +388,7 @@ class MessageDTO(BaseModel):
     exercises: list[ExerciseDTO]
     created_at: datetime
     execution_info: list[str] = Field(default_factory=list)
+    role_runs: list[RoleRunDTO] = Field(default_factory=list)
 
 
 class KnowledgeBaseDTO(BaseModel):
@@ -397,6 +420,9 @@ class PlanDTO(BaseModel):
     agent_id: UUID
     name: str
     content_version: int
+    origin_kind: str = "generated"
+    user_edited: bool = False
+    adoption_id: UUID | None = None
     content: PlanPayload
     sources: list[SourceDTO]
     source_conversation_id: UUID | None
@@ -460,6 +486,7 @@ class TaskDTO(BaseModel):
     deadline_at: datetime | None
     started_at: datetime | None
     finished_at: datetime | None
+    role_runs: list[RoleRunDTO] = Field(default_factory=list)
 
 
 class ChatAcceptedDTO(BaseModel):

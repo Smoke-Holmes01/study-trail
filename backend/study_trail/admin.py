@@ -683,7 +683,7 @@ def filters(request, table, mapping):
                 p.invalid("状态不合法")
             elif name == "category" and value not in {"model", "mcp_tool"}:
                 p.invalid("调用类别不合法")
-            elif name == "kind" and value not in {"chat", "prompt_generate", "prompt_polish", "file_process"}:
+            elif name == "kind" and value not in {"chat", "prompt_generate", "prompt_polish", "file_process", "template_asset_process", "template_import"}:
                 p.invalid("任务类别不合法")
             elif name == "purpose" and value not in {
                 "learning",
@@ -743,6 +743,8 @@ def run_dto(conn, row, file=False):
         else None
     )
     result["resource_deleted"] = db.one(conn, db.tasks, row["task_id"]) is None
+    from .execution import role_runs
+    result["role_runs"] = role_runs(conn, row["task_id"])
     for category, name in [("model", "model_calls"), ("mcp_tool", "tool_calls")]:
         result[name] = conn.scalar(
             sa.select(sa.func.count())
@@ -769,7 +771,8 @@ def run_page(request, ctx, file):
             "status": table.c.status,
         },
     )
-    clauses.append(table.c.kind == "file_process" if file else table.c.kind != "file_process")
+    clauses.append(table.c.kind.in_(["file_process", "template_asset_process", "template_import"])
+                   if file else table.c.kind.in_(["chat", "prompt_generate", "prompt_polish"]))
     page = paginate(ctx[0], table, request, ctx[1]["id"], clauses, order=order)
     page["items"] = [run_dto(ctx[0], row, file) for row in page["items"]]
     return c.envelope(page)
@@ -793,7 +796,7 @@ def task_run(ident: UUID, ctx=D):
         .mappings()
         .first()
     )
-    return c.envelope(run_dto(ctx[0], row, row["kind"] == "file_process"))
+    return c.envelope(run_dto(ctx[0], row, row["kind"] in {"file_process", "template_asset_process", "template_import"}))
 
 
 @router.get("/task-runs/{ident}/calls", operation_id="AD-O05")
@@ -891,7 +894,7 @@ def aggregates(request, ctx, calls=False):
     table = db.invocation_attempts if calls else db.task_run_facts
     mapping = {"category": table.c.category, "purpose": table.c.purpose} if calls else {"kind": table.c.kind}
     clauses, order = filters(request, table, mapping)
-    clauses.append(table.c.purpose != "connection_test" if calls else table.c.kind != "file_process")
+    clauses.append(table.c.purpose != "connection_test" if calls else table.c.kind.in_(["chat", "prompt_generate", "prompt_polish"]))
     if calls and request.query_params.get("purpose") == "connection_test":
         clauses.pop()
     counts = dict(
@@ -932,6 +935,11 @@ def aggregates(request, ctx, calls=False):
             .all()
         }
     if not calls:
+        parent_ids = sa.select(table.c.task_id).where(*clauses)
+        role_counts = ctx[0].execute(sa.select(db.task_role_runs.c.role, sa.func.count())
+            .where(db.task_role_runs.c.task_id.in_(parent_ids)).group_by(db.task_role_runs.c.role)).all()
+        result["role_execution_counts"] = dict(role_counts)
+        result["total_role_runs"] = sum(count for _, count in role_counts)
         waits = (
             ctx[0]
             .execute(

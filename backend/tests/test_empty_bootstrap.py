@@ -39,9 +39,10 @@ def test_empty_initialization_never_reads_external_service_files(empty_platform,
         initialize(conn)
         initialize(conn)
         kinds = conn.execute(sa.select(db.platform_configs.c.kind)).scalars().all()
-        assert set(kinds) == {"prompt", "skill", "limits"}
+        assert set(kinds) == {"prompt", "skill", "limits", "role"}
+        assert kinds.count("role") == 5
         assert conn.scalar(sa.select(sa.func.count()).select_from(db.credential_versions)) == 0
-        assert len(kinds) == 13  # Eight prompts, four skills, one limits profile.
+        assert len(kinds) == 18  # Eight prompts, four skills, five fixed roles, one limits profile.
     runpy.run_path(str(Path(__file__).parents[1] / "tools/check_installation.py"))
     response = client.get("/api/v1/models")
     assert response.status_code == 200
@@ -85,6 +86,25 @@ def test_generation_alone_allows_agents_and_chat_and_repeat_init_preserves_edits
     assert "嵌入模型" in upload.json()["error"]["message"]
     with db.engine.connect() as conn:
         assert conn.scalar(sa.select(sa.func.count()).select_from(db.files)) == 0
+
+
+def test_fixed_role_permissions_do_not_expand_on_repeat_initialization(empty_platform):
+    import json
+    fixtures = json.loads((Path(__file__).parent / "fixtures/platform.json").read_text(encoding="utf-8"))
+    with db.engine.begin() as conn:
+        initial = {row["stable_id"]: db.one(conn, db.config_revisions, row["current_revision_id"])["payload"]
+                   for row in conn.execute(sa.select(db.platform_configs).where(db.platform_configs.c.kind == "role")).mappings()}
+        assert len(initial) == 5
+        assert all(set(x["allowed_skill_ids"]) == {"explain", "practice", "study-plan", "study-trail-guide"} for x in initial.values())
+        fixture = next(dict(x) for x in fixtures if x["kind"] == "mcp")
+        fixture.pop("kind")
+        fixture.pop("slot")
+        platform.create(conn, "mcp", fixture, None)
+        initialize(conn)
+        after = {row["stable_id"]: db.one(conn, db.config_revisions, row["current_revision_id"])["payload"]
+                 for row in conn.execute(sa.select(db.platform_configs).where(db.platform_configs.c.kind == "role")).mappings()}
+        assert after == initial
+        assert all(x["allowed_mcp_ids"] == [] for x in after.values())
 
 
 def test_embedding_only_accepts_file_processing_without_generation(empty_platform, client, student):

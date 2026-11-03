@@ -20,9 +20,9 @@ env = {
     "DATABASE_URL": source.set(database=name).render_as_string(hide_password=False),
     "PLATFORM_KEYS": json.dumps({"test-v1": "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISEhISE="}),
     "PLATFORM_KEY_ID": "test-v1",
-    "STORAGE_ROOT": str(Path(__file__).parents[2] / ".local/v004/e2e-storage"),
+    "STORAGE_ROOT": str(settings().runtime_root / "e2e-storage"),
     "PYTHONUTF8": "1",
-    "ALLOWED_ORIGINS": '["http://127.0.0.1:5174"]',
+    "ALLOWED_ORIGINS": json.dumps([os.environ.get("E2E_BASE_URL", "http://127.0.0.1:5180")]),
 }
 subprocess.run(
     [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=Path(__file__).parents[1], env=env, check=True
@@ -41,7 +41,7 @@ with db.engine.begin() as conn:
 """
 subprocess.run([sys.executable, "-c", code], env=env, cwd=Path(__file__).parents[1], check=True)
 # The environment file is local-only and contains a URL credential. Do not print it.
-target = Path(__file__).parents[2] / ".local/v004/e2e-environment.json"
+target = settings().runtime_root / "e2e-environment.json"
 target.write_text(
     json.dumps(
         {
@@ -54,6 +54,11 @@ target.write_text(
                 "STORAGE_ROOT",
                 "ALLOWED_ORIGINS",
                 "PYTHONUTF8",
+                "STUDY_TRAIL_ENV_FILE",
+                "STUDY_TRAIL_COMPOSE_PROJECT",
+                "RUNTIME_ROOT",
+                "CHROMA_HOST",
+                "CHROMA_PORT",
             )
         }
     ),

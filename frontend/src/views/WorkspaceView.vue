@@ -67,6 +67,10 @@ import SkillPicker from "../components/SkillPicker.vue";
 import type { Skill, MCPServer } from "../lib/api";
 import Markdown from "../components/Markdown.vue";
 import ModelSelect from "../components/ModelSelect.vue";
+import TemplatePicker from "../components/TemplatePicker.vue";
+import LearningContent from "../components/LearningContent.vue";
+import RoleRuns from "../components/RoleRuns.vue";
+import type { RoleRun } from "../lib/learning";
 import { renderMarkdownDocument } from "../lib/markdown";
 const route = useRoute();
 const router = useRouter();
@@ -76,6 +80,9 @@ const collapsed = ref(false);
 const { compact, phone, touch, keyboard, height } = useResponsive();
 const drawerOpen = ref(false);
 const planDetailOpen = ref(false);
+const learningOpen = ref(false);
+const templatePicker = ref<InstanceType<typeof TemplatePicker>>();
+const selectedAdoptionId = computed(() => (selectedAgent.value as Agent & {adoption_id?:string})?.adoption_id);
 watch(compact, () => { drawerOpen.value = false; });
 const agentExpanded = ref(true);
 const agents = ref<Agent[]>([]);
@@ -744,7 +751,7 @@ async function confirmConflictRetry() {
 }
 async function requestAnswer(exercise: Exercise) {
   const id = exercise.conversation_id;
-  if (generating.value) return;
+  if (generating.value || !id) return;
   const result = await mutation<ChatAccepted>(
     `/exercises/${exercise.id}/answer`,
     {},
@@ -962,7 +969,34 @@ async function openPlans() {
   plans.value = await all<Plan>(`/agents/${agentId.value}/plans`);
   selectedPlanId.value = plans.value[0]?.id ?? "";
   conflictTask.value = null;
-  modal.value = "plans";
+  learningOpen.value = true;
+}
+async function adoptedAgent(id: string) {
+  agents.value = await all<Agent>("/agents");
+  libraries.value = await all<KnowledgeBase>("/knowledge-bases");
+  await openAgent(id);
+  drawerOpen.value = false;
+}
+async function learningChanged() {
+  if (agentId.value) plans.value = await all<Plan>(`/agents/${agentId.value}/plans`);
+  libraries.value = await all<KnowledgeBase>("/knowledge-bases");
+  if (conversationId.value) await refreshMessages();
+}
+async function editPlanInChat(plan: Plan) {
+  selectedPlanId.value = plan.id;
+  plans.value = [plan, ...plans.value.filter(p => p.id !== plan.id)];
+  learningOpen.value = false;
+  await modifyPlan();
+}
+async function acceptLearningTask(accepted: ChatAccepted, id: string) {
+  learningOpen.value = false;
+  conversations.value = await all<Conversation>(`/agents/${agentId.value}/conversations`);
+  await openConversation(id);
+  attachTask(accepted.task, id);
+}
+function roleRuns(message: Message): RoleRun[] {
+  const snapshot = task.value?.id === message.task_id ? task.value : taskHistory.get(message.task_id ?? "");
+  return (snapshot as Task & { role_runs?: RoleRun[] })?.role_runs ?? (snapshot?.result as unknown as {role_runs?:RoleRun[]})?.role_runs ?? [];
 }
 async function modifyPlan() {
   const p = selectedPlan.value;
@@ -995,6 +1029,10 @@ async function showPreview(path: string, append = false) {
   }
 }
 async function openSource(source: Source) {
+  if (String(source.status) === "template_not_imported") {
+    notify("模板资料未导入，请先导入个人知识库。");
+    return;
+  }
   if (source.status === "deleted") {
     notify("来源已删除，历史文字保留。");
     return;
@@ -1411,7 +1449,8 @@ onBeforeUnmount(() => {
           <PanelLeftClose :size="19" />
         </button>
       </div>
-      <button
+      <div v-if="!isKnowledge"><button class="resource-create" aria-label="创建智能体" @click="templatePicker?.toggle($event.currentTarget as HTMLElement);drawerOpen=false"><Plus :size="18" />创建智能体</button><button v-if="selectedAdoptionId" class="text-button" @click="drawerOpen=false;templatePicker?.loadAdoption()">模板资料导入状态</button></div>
+      <button v-else
         class="resource-create"
         @click="
           isKnowledge
@@ -1616,7 +1655,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="!isKnowledge && selectedAgent" class="header-actions">
           <button @click="guard(openPlans)">
-            <BookOpen :size="17" />学习计划</button
+            <BookOpen :size="17" />学习内容</button
           ><button
             class="icon-button"
             aria-label="编辑当前智能体"
@@ -1786,6 +1825,7 @@ onBeforeUnmount(() => {
                   <summary>本次执行状态</summary>
                   <ul><li v-for="item in message.execution_info" :key="item">{{ item }}</li></ul>
                 </details>
+                <RoleRuns v-if="message.role === 'assistant'" :runs="roleRuns(message)" />
                 <details
                   v-if="uncitedSources(message).length"
                   class="reference-disclosure"
@@ -2235,6 +2275,7 @@ onBeforeUnmount(() => {
       <p v-if="activeSource.status === 'deleted'" class="muted">
         来源已删除，以下为引用时保留的片段。
       </p>
+      <p v-if="String(activeSource.status)==='template_not_imported'" class="muted">模板资料未导入，请先导入个人知识库。</p>
       <div class="source-excerpt">
         {{ activeSource.excerpt || "暂无可用片段。" }}
       </div>
@@ -2782,4 +2823,6 @@ onBeforeUnmount(() => {
       ><button v-else @click="closeModal">关闭</button></template
     >
   </Modal>
+  <TemplatePicker ref="templatePicker" headless :libraries="libraries" :models="models" :skills="skills" :servers="mcpServers" :adoption-id="selectedAdoptionId" @custom="openAgentForm()" @adopted="id => guard(() => adoptedAgent(id))" @changed="guard(learningChanged)" />
+  <LearningContent :open="learningOpen" :agent-id="agentId" :conversation-id="conversationId" :supports-images="models.find(m=>m.id===selectedAgent?.model_id)?.supports_images" @close="learningOpen=false" @changed="guard(learningChanged)" @source="s => guard(async()=>{learningOpen=false;await openSource(s);})" @modify-plan="p => guard(() => editPlanInChat(p))" @task="(accepted,id) => guard(() => acceptLearningTask(accepted,id))" />
 </template>

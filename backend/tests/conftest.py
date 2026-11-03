@@ -1,4 +1,5 @@
 import os
+import socket
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,13 +8,21 @@ import sqlalchemy as sa
 from dotenv import dotenv_values
 
 backend = Path(__file__).parents[1]
-env = dotenv_values(backend.parent / ".local/v004/backend.env")
+env_path = os.environ.get("STUDY_TRAIL_ENV_FILE")
+if not env_path:
+    raise RuntimeError("Tests require an explicit isolated STUDY_TRAIL_ENV_FILE")
+env = dotenv_values(env_path)
+runtime = Path(env.get("RUNTIME_ROOT", "")).resolve()
+if runtime == (backend.parent / ".local/v004").resolve() or not env.get("RUNTIME_ROOT"):
+    raise RuntimeError("Tests must not use the daily runtime")
+os.environ.update({k: v for k, v in env.items() if v is not None})
+os.environ["ALLOWED_ORIGINS"] = '["http://127.0.0.1:5173"]'
 url = sa.engine.make_url(env["DATABASE_URL"])
 os.environ["DATABASE_URL"] = url.set(database="study_trail_test").render_as_string(hide_password=False)
 os.environ["CHROMA_COLLECTION"] = "study_trail_test_chunks"
 os.environ["PLATFORM_KEYS"] = '{"test-v1":"dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISEhISE="}'
 os.environ["PLATFORM_KEY_ID"] = "test-v1"
-os.environ["STORAGE_ROOT"] = str(backend.parent / ".local/v004/test-storage")
+os.environ["STORAGE_ROOT"] = str(runtime / "test-storage")
 
 from fastapi.testclient import TestClient
 
@@ -35,6 +44,12 @@ def reset_tables(conn, names=None):
 
 @pytest.fixture(autouse=True)
 def isolated_database(monkeypatch):
+    original_resolve = socket.getaddrinfo
+    def local_resolve(host, *args, **kwargs):
+        if host not in {"127.0.0.1", "localhost", "::1", b"127.0.0.1", b"localhost", None}:
+            raise RuntimeError("External network is disabled during regression")
+        return original_resolve(host, *args, **kwargs)
+    monkeypatch.setattr(socket, "getaddrinfo", local_resolve)
     from study_trail import vectors
     try:
         vectors.client().delete_collection(settings().chroma_collection)

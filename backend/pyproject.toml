@@ -1,6 +1,6 @@
 [project]
 name = "study-trail"
-version = "0.0.5"
+version = "0.1.0"
 description = "Study Trail student tutoring platform"
 requires-python = ">=3.12,<3.13"
 dependencies = [

@@ -192,7 +192,7 @@ document_chunks = table(
 )
 sources = table(
     "sources",
-    col("kind", sa.String(12)),
+    col("kind", sa.String(24)),
     col("file_id", UUID(as_uuid=True), nullable=True, fk="files.id", delete="SET NULL"),
     col("chunk_id", UUID(as_uuid=True), nullable=True, fk="document_chunks.id", delete="SET NULL"),
     col("title_snapshot"),
@@ -201,7 +201,7 @@ sources = table(
     col("excerpt_snapshot"),
     col("locator_snapshot", JSON, nullable=True),
     col("captured_at", UTCDateTime(), default=now),
-    sa.CheckConstraint("kind IN ('file','web')"),
+    sa.CheckConstraint("kind IN ('file','web','template_placeholder')"),
 )
 learning_plans = table(
     "learning_plans",
@@ -247,14 +247,15 @@ plan_sources = sa.Table(
 exercises = table(
     "exercises",
     col("agent_id", UUID(as_uuid=True)),
-    col("conversation_id", UUID(as_uuid=True)),
-    col("message_id", UUID(as_uuid=True)),
+    col("conversation_id", UUID(as_uuid=True), nullable=True, fk="conversations.id", delete="SET NULL"),
+    col("message_id", UUID(as_uuid=True), nullable=True, fk="messages.id", delete="SET NULL"),
     col("position", sa.Integer),
     col("question_text"),
     col("provenance", sa.String(16)),
     col("source_ids", JSON, default=list),
     col("known_answer_snapshot", JSON, nullable=True),
-    parent("messages", "message_id", "agent_id", "conversation_id"),
+    parent("agents", "agent_id"),
+    sa.UniqueConstraint("id", "owner_id", "agent_id"),
     sa.UniqueConstraint("message_id", "position"),
     sa.CheckConstraint("provenance IN ('original','adapted','generated')"),
 )
@@ -373,7 +374,7 @@ CHECKS = {
     },
     "sources": {
         "title": "CHAR_LENGTH(TRIM(title_snapshot)) > 0",
-        "url": "(kind = 'file' AND url_snapshot IS NULL) OR (kind = 'web' AND REGEXP_LIKE(url_snapshot, '^https?://', 'c'))",
+        "url": "(kind IN ('file','template_placeholder') AND url_snapshot IS NULL) OR (kind = 'web' AND REGEXP_LIKE(url_snapshot, '^https?://', 'c'))",
     },
     "exercises": {
         "position": "position >= 0",
@@ -382,7 +383,7 @@ CHECKS = {
     },
     "learning_plans": {"name": "CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 50", "version": "content_version > 0"},
     "tasks": {
-        "kind": "kind IN ('chat','prompt_generate','prompt_polish','file_process','storage_cleanup')",
+        "kind": "kind IN ('chat','prompt_generate','prompt_polish','file_process','storage_cleanup','template_asset_process','template_import')",
         "action": "action IS NULL OR action IN ('plan_create','plan_update','exercise','answer','tutor','feedback','clarify')",
         "revision": "revision > 0 AND timeout_seconds > 0",
     },
@@ -431,6 +432,14 @@ vector_generations = sa.Table("vector_generations", metadata,
     sa.CheckConstraint("state IN ('staging','active','retired')", name="ck_vector_generations_state"))
 sa.Index("ix_vector_cleanup", vector_generations.c.state, vector_generations.c.next_cleanup_at)
 files.append_column(sa.Column("active_generation_id", UUID(as_uuid=True), sa.ForeignKey("vector_generations.id", name="fk_files_active_generation")))
+
+from .v010_schema import install as install_v010
+install_v010(metadata, table, col, parent)
+for _name in ("task_role_runs", "agent_templates", "template_versions", "template_assets",
+              "template_version_assets", "template_adoptions", "template_import_batches",
+              "template_import_items", "template_source_mappings", "exercise_revisions",
+              "exercise_plan_links", "exercise_sources", "learning_plan_revisions"):
+    globals()[_name] = metadata.tables[_name]
 
 # Explicit capacities and collations avoid MySQL TEXT indexes and silent truncation.
 _INDEXED_TEXT = {"storage_key": 255, "event_key": 160, "operation_key": 160,
@@ -504,9 +513,13 @@ def insert(conn, t, **data):
             raise Problem("SERVICE_UNAVAILABLE", "平台维护中，暂不受理新任务", 503)
         from .platform import snapshot
         old = data.get("config_snapshot", {})
-        frozen = snapshot(conn, old.get("model_id"), generation_required=data["kind"] != "file_process")
+        if data["kind"] in {"template_asset_process", "template_import"}:
+            from .platform import limits
+            frozen = {"limits": limits(conn)}
+        else:
+            frozen = snapshot(conn, old.get("model_id"), generation_required=data["kind"] != "file_process")
         data["config_snapshot"] = {**old, **frozen}
-        data["timeout_seconds"] = frozen["limits"]["file_timeout_seconds" if data["kind"] == "file_process" else "ai_timeout_seconds"]
+        data["timeout_seconds"] = frozen["limits"]["file_timeout_seconds" if data["kind"] in {"file_process", "template_asset_process", "template_import"} else "ai_timeout_seconds"]
         if data["kind"] == "file_process":
             from .platform import bound
             bound(conn, "embedding")

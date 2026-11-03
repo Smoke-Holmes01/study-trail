@@ -1,0 +1,587 @@
+[
+  {
+    "id": "AUTH-01",
+    "method": "post",
+    "path": "/api/v1/auth/register"
+  },
+  {
+    "id": "AUTH-02",
+    "method": "post",
+    "path": "/api/v1/auth/login"
+  },
+  {
+    "id": "AUTH-03",
+    "method": "get",
+    "path": "/api/v1/me"
+  },
+  {
+    "id": "AUTH-06",
+    "method": "patch",
+    "path": "/api/v1/me"
+  },
+  {
+    "id": "AUTH-04",
+    "method": "get",
+    "path": "/api/v1/auth/csrf"
+  },
+  {
+    "id": "AUTH-05",
+    "method": "post",
+    "path": "/api/v1/auth/logout"
+  },
+  {
+    "id": "AUTH-07",
+    "method": "post",
+    "path": "/api/v1/auth/password"
+  },
+  {
+    "id": "M-01",
+    "method": "get",
+    "path": "/api/v1/models"
+  },
+  {
+    "id": "SK-01",
+    "method": "get",
+    "path": "/api/v1/skills"
+  },
+  {
+    "id": "MC-01",
+    "method": "get",
+    "path": "/api/v1/mcp/servers"
+  },
+  {
+    "id": "MC-02",
+    "method": "post",
+    "path": "/api/v1/mcp/servers/{}/check"
+  },
+  {
+    "id": "MC-03",
+    "method": "get",
+    "path": "/api/v1/agents/{}/mcp/tools"
+  },
+  {
+    "id": "MC-04",
+    "method": "post",
+    "path": "/api/v1/agents/{}/mcp/tools/call"
+  },
+  {
+    "id": "A-02",
+    "method": "post",
+    "path": "/api/v1/agents"
+  },
+  {
+    "id": "A-01",
+    "method": "get",
+    "path": "/api/v1/agents"
+  },
+  {
+    "id": "A-04",
+    "method": "patch",
+    "path": "/api/v1/agents/{}"
+  },
+  {
+    "id": "A-03",
+    "method": "get",
+    "path": "/api/v1/agents/{}"
+  },
+  {
+    "id": "A-05",
+    "method": "delete",
+    "path": "/api/v1/agents/{}"
+  },
+  {
+    "id": "A-07",
+    "method": "post",
+    "path": "/api/v1/prompt-tasks"
+  },
+  {
+    "id": "C-01",
+    "method": "get",
+    "path": "/api/v1/agents/{}/conversations"
+  },
+  {
+    "id": "C-02",
+    "method": "post",
+    "path": "/api/v1/agents/{}/conversations"
+  },
+  {
+    "id": "C-08",
+    "method": "get",
+    "path": "/api/v1/conversations/{}/messages"
+  },
+  {
+    "id": "C-09",
+    "method": "post",
+    "path": "/api/v1/conversations/{}/messages"
+  },
+  {
+    "id": "P-01",
+    "method": "get",
+    "path": "/api/v1/agents/{}/plans"
+  },
+  {
+    "id": "K-01",
+    "method": "get",
+    "path": "/api/v1/knowledge-bases"
+  },
+  {
+    "id": "K-02",
+    "method": "post",
+    "path": "/api/v1/knowledge-bases"
+  },
+  {
+    "id": "F-01",
+    "method": "get",
+    "path": "/api/v1/knowledge-bases/{}/files"
+  },
+  {
+    "id": "F-02",
+    "method": "post",
+    "path": "/api/v1/knowledge-bases/{}/files"
+  },
+  {
+    "id": "C-03",
+    "method": "get",
+    "path": "/api/v1/conversations/{}"
+  },
+  {
+    "id": "C-05",
+    "method": "delete",
+    "path": "/api/v1/conversations/{}"
+  },
+  {
+    "id": "C-04",
+    "method": "patch",
+    "path": "/api/v1/conversations/{}"
+  },
+  {
+    "id": "P-02",
+    "method": "get",
+    "path": "/api/v1/plans/{}"
+  },
+  {
+    "id": "P-04",
+    "method": "delete",
+    "path": "/api/v1/plans/{}"
+  },
+  {
+    "id": "P-03",
+    "method": "patch",
+    "path": "/api/v1/plans/{}"
+  },
+  {
+    "id": "K-03",
+    "method": "get",
+    "path": "/api/v1/knowledge-bases/{}"
+  },
+  {
+    "id": "K-05",
+    "method": "delete",
+    "path": "/api/v1/knowledge-bases/{}"
+  },
+  {
+    "id": "K-04",
+    "method": "patch",
+    "path": "/api/v1/knowledge-bases/{}"
+  },
+  {
+    "id": "F-03",
+    "method": "get",
+    "path": "/api/v1/files/{}"
+  },
+  {
+    "id": "F-06",
+    "method": "delete",
+    "path": "/api/v1/files/{}"
+  },
+  {
+    "id": "Q-01",
+    "method": "get",
+    "path": "/api/v1/exercises/{}"
+  },
+  {
+    "id": "T-01",
+    "method": "get",
+    "path": "/api/v1/tasks/{}"
+  },
+  {
+    "id": "C-06",
+    "method": "post",
+    "path": "/api/v1/conversations/{}/access"
+  },
+  {
+    "id": "C-10",
+    "method": "post",
+    "path": "/api/v1/messages/{}/retry"
+  },
+  {
+    "id": "Q-02",
+    "method": "post",
+    "path": "/api/v1/exercises/{}/answer"
+  },
+  {
+    "id": "I-01",
+    "method": "post",
+    "path": "/api/v1/conversations/{}/images"
+  },
+  {
+    "id": "I-02",
+    "method": "get",
+    "path": "/api/v1/attachments/{}/content"
+  },
+  {
+    "id": "F-05",
+    "method": "post",
+    "path": "/api/v1/files/{}/reprocess"
+  },
+  {
+    "id": "F-04",
+    "method": "get",
+    "path": "/api/v1/files/{}/preview"
+  },
+  {
+    "id": "S-01",
+    "method": "get",
+    "path": "/api/v1/sources/{}"
+  },
+  {
+    "id": "S-02",
+    "method": "get",
+    "path": "/api/v1/sources/{}/preview"
+  },
+  {
+    "id": "T-03",
+    "method": "post",
+    "path": "/api/v1/tasks/{}/stop"
+  },
+  {
+    "id": "T-04",
+    "method": "post",
+    "path": "/api/v1/tasks/{}/retry"
+  },
+  {
+    "id": "T-02",
+    "method": "get",
+    "path": "/api/v1/tasks/{}/events"
+  },
+  {
+    "id": "A-06",
+    "method": "get",
+    "path": "/api/v1/agents/{}/delete-impact"
+  },
+  {
+    "id": "C-07",
+    "method": "get",
+    "path": "/api/v1/conversations/{}/delete-impact"
+  },
+  {
+    "id": "P-05",
+    "method": "get",
+    "path": "/api/v1/plans/{}/delete-impact"
+  },
+  {
+    "id": "K-06",
+    "method": "get",
+    "path": "/api/v1/knowledge-bases/{}/delete-impact"
+  },
+  {
+    "id": "F-07",
+    "method": "get",
+    "path": "/api/v1/files/{}/delete-impact"
+  },
+  {
+    "id": "I-03",
+    "method": "delete",
+    "path": "/api/v1/attachments/{}"
+  },
+  {
+    "id": "AD-A01",
+    "method": "post",
+    "path": "/api/admin/auth/login"
+  },
+  {
+    "id": "AD-A02",
+    "method": "get",
+    "path": "/api/admin/me"
+  },
+  {
+    "id": "AD-A03",
+    "method": "get",
+    "path": "/api/admin/auth/csrf"
+  },
+  {
+    "id": "AD-A04",
+    "method": "post",
+    "path": "/api/admin/auth/logout"
+  },
+  {
+    "id": "AD-U01",
+    "method": "get",
+    "path": "/api/admin/users"
+  },
+  {
+    "id": "AD-U02",
+    "method": "patch",
+    "path": "/api/admin/users/{}/status"
+  },
+  {
+    "id": "AD-C01",
+    "method": "get",
+    "path": "/api/admin/configs/{}"
+  },
+  {
+    "id": "AD-C02",
+    "method": "post",
+    "path": "/api/admin/configs/{}"
+  },
+  {
+    "id": "AD-C03",
+    "method": "get",
+    "path": "/api/admin/configs/{}/{}"
+  },
+  {
+    "id": "AD-C04",
+    "method": "patch",
+    "path": "/api/admin/configs/{}/{}"
+  },
+  {
+    "id": "AD-C07",
+    "method": "delete",
+    "path": "/api/admin/configs/{}/{}"
+  },
+  {
+    "id": "AD-C05",
+    "method": "patch",
+    "path": "/api/admin/configs/{}/{}/status"
+  },
+  {
+    "id": "AD-B01",
+    "method": "get",
+    "path": "/api/admin/bindings"
+  },
+  {
+    "id": "AD-B02",
+    "method": "patch",
+    "path": "/api/admin/bindings/{}"
+  },
+  {
+    "id": "AD-S01",
+    "method": "get",
+    "path": "/api/admin/settings"
+  },
+  {
+    "id": "AD-S02",
+    "method": "patch",
+    "path": "/api/admin/settings"
+  },
+  {
+    "id": "AD-C06",
+    "method": "post",
+    "path": "/api/admin/config-tests"
+  },
+  {
+    "id": "AD-O01",
+    "method": "get",
+    "path": "/api/admin/agents"
+  },
+  {
+    "id": "AD-O02",
+    "method": "get",
+    "path": "/api/admin/file-runs"
+  },
+  {
+    "id": "AD-O03",
+    "method": "get",
+    "path": "/api/admin/task-runs"
+  },
+  {
+    "id": "AD-O04",
+    "method": "get",
+    "path": "/api/admin/task-runs/{}"
+  },
+  {
+    "id": "AD-O05",
+    "method": "get",
+    "path": "/api/admin/task-runs/{}/calls"
+  },
+  {
+    "id": "AD-R01",
+    "method": "get",
+    "path": "/api/admin/reports/usage"
+  },
+  {
+    "id": "AD-R02",
+    "method": "get",
+    "path": "/api/admin/reports/tasks"
+  },
+  {
+    "id": "AD-R03",
+    "method": "get",
+    "path": "/api/admin/reports/calls"
+  },
+  {
+    "id": "AD-L01",
+    "method": "get",
+    "path": "/api/admin/operation-logs"
+  },
+  {
+    "id": "RT-01",
+    "method": "get",
+    "path": "/api/v1/runtime-limits"
+  },
+  {
+    "id": "LT-01",
+    "method": "get",
+    "path": "/api/v1/agent-templates"
+  },
+  {
+    "id": "LT-02",
+    "method": "get",
+    "path": "/api/v1/agent-templates/{}/versions/{}"
+  },
+  {
+    "id": "LT-03",
+    "method": "post",
+    "path": "/api/v1/template-adoptions"
+  },
+  {
+    "id": "LT-04",
+    "method": "get",
+    "path": "/api/v1/template-adoptions/{}"
+  },
+  {
+    "id": "LT-05",
+    "method": "post",
+    "path": "/api/v1/template-adoptions/{}/imports"
+  },
+  {
+    "id": "LT-06",
+    "method": "get",
+    "path": "/api/v1/template-imports/{}"
+  },
+  {
+    "id": "LT-07",
+    "method": "post",
+    "path": "/api/v1/template-imports/{}/retry"
+  },
+  {
+    "id": "P-06",
+    "method": "put",
+    "path": "/api/v1/plans/{}/content"
+  },
+  {
+    "id": "Q-03",
+    "method": "get",
+    "path": "/api/v1/agents/{}/exercises"
+  },
+  {
+    "id": "Q-04",
+    "method": "post",
+    "path": "/api/v1/agents/{}/exercises"
+  },
+  {
+    "id": "Q-05",
+    "method": "patch",
+    "path": "/api/v1/exercises/{}"
+  },
+  {
+    "id": "Q-06",
+    "method": "delete",
+    "path": "/api/v1/exercises/{}"
+  },
+  {
+    "id": "Q-07",
+    "method": "get",
+    "path": "/api/v1/exercises/{}/answer"
+  },
+  {
+    "id": "Q-08",
+    "method": "post",
+    "path": "/api/v1/exercises/{}/explanation-tasks"
+  },
+  {
+    "id": "Q-09",
+    "method": "post",
+    "path": "/api/v1/exercises/{}/feedback-tasks"
+  },
+  {
+    "id": "AD-RA01",
+    "method": "get",
+    "path": "/api/admin/roles"
+  },
+  {
+    "id": "AD-RA02",
+    "method": "get",
+    "path": "/api/admin/roles/{}"
+  },
+  {
+    "id": "AD-RA03",
+    "method": "patch",
+    "path": "/api/admin/roles/{}"
+  },
+  {
+    "id": "AD-LT01",
+    "method": "get",
+    "path": "/api/admin/agent-templates"
+  },
+  {
+    "id": "AD-LT02",
+    "method": "post",
+    "path": "/api/admin/agent-templates"
+  },
+  {
+    "id": "AD-LT03",
+    "method": "get",
+    "path": "/api/admin/agent-templates/{}"
+  },
+  {
+    "id": "AD-LT04",
+    "method": "post",
+    "path": "/api/admin/agent-templates/{}/drafts"
+  },
+  {
+    "id": "AD-LT05",
+    "method": "put",
+    "path": "/api/admin/template-versions/{}"
+  },
+  {
+    "id": "AD-LT06",
+    "method": "post",
+    "path": "/api/admin/template-versions/{}/publish"
+  },
+  {
+    "id": "AD-LT07",
+    "method": "post",
+    "path": "/api/admin/agent-templates/{}/offline"
+  },
+  {
+    "id": "AD-LT08",
+    "method": "delete",
+    "path": "/api/admin/agent-templates/{}"
+  },
+  {
+    "id": "AD-LT09",
+    "method": "get",
+    "path": "/api/admin/agent-templates/{}/assets"
+  },
+  {
+    "id": "AD-LT10",
+    "method": "post",
+    "path": "/api/admin/agent-templates/{}/assets"
+  },
+  {
+    "id": "AD-LT11",
+    "method": "get",
+    "path": "/api/admin/template-assets/{}/preview"
+  },
+  {
+    "id": "AD-LT12",
+    "method": "post",
+    "path": "/api/admin/template-assets/{}/retry"
+  },
+  {
+    "id": "AD-LT13",
+    "method": "delete",
+    "path": "/api/admin/template-versions/{}/assets/{}"
+  }
+]

@@ -1,4 +1,5 @@
 import { ApiError } from "./api";
+import { requestFingerprint } from "./learning";
 export interface Admin {
   id: string;
   login: string;
@@ -26,6 +27,16 @@ let csrf = "";
 export function adminCsrf(value: string) {
   csrf = value;
 }
+export function adminOperation() {
+  const pending=new Map<string,string>();
+  return async function<T=any>(path:string, method="GET", body?:unknown):Promise<T>{
+    if (method==="GET") return adminApi<T>(path);
+    const fingerprint=method+path+requestFingerprint(body);
+    const key=pending.get(fingerprint)??crypto.randomUUID();pending.set(fingerprint,key);
+    try{const result=await adminApi<T>(path,method,body,key);pending.delete(fingerprint);return result;}
+    catch(e){if(!(e instanceof ApiError)||e.status!==0)pending.delete(fingerprint);throw e;}
+  };
+}
 export async function adminApi<T = any>(
   path: string,
   method = "GET",
@@ -33,7 +44,8 @@ export async function adminApi<T = any>(
   key?: string,
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const form = body instanceof FormData;
+  if (body !== undefined && !form) headers["Content-Type"] = "application/json";
   if (method !== "GET") headers["X-CSRF-Token"] = csrf;
   if (!["GET", "HEAD"].includes(method) && !path.startsWith("/auth/"))
     headers["Idempotency-Key"] = key ?? crypto.randomUUID();
@@ -43,7 +55,7 @@ export async function adminApi<T = any>(
       method,
       headers,
       credentials: "same-origin",
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : form ? body as FormData : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(

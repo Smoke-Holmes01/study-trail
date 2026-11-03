@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from fastapi.encoders import jsonable_encoder
-from langgraph.graph import END, START, StateGraph
 
 from . import core as c
 from . import db, mcp_tools
@@ -56,6 +55,11 @@ class State(TypedDict, total=False):
     tool_evidence: list
     degradation: list
     execution_info: list
+    shared_budget: dict
+    role: str
+    role_run_id: UUID
+    answer_updates: list
+    reply_parts: list
 
 
 async def run_prompt(task):
@@ -126,6 +130,7 @@ async def intent(state):
             + "\n目标标签："
             + json.dumps(inp.get("target_plan"), ensure_ascii=False)
             + '\n同时返回 retrieval_mode:"none|knowledge|web|auto" 和 capability_check:boolean。问候、闲聊、工具或连接能力状态询问用none；明确询问当前能力状态时capability_check=true。教材/已上传资料问题用knowledge，实时事实或明确联网请求用web，其他学习问题按需auto。不要因历史中出现检索请求就把本轮问候或能力询问当检索请求。'
+            + '\n复合学习请求增加dispatch列表，每项为{step_id:"step-1",role:"plan|tutor|exercise|explanation|feedback",purpose:"本步骤职责",depends_on:["前序step_id"],target_ids:[]}；按依赖串行排序，每角色至多一次，最多五项。计划与练习可分派plan后exercise；只有明确要求计划时才允许plan，主action须为plan_create或plan_update。普通单项请求可不返回dispatch。歧义或超范围action=clarify，不猜测目标、不自主追加任务。'
         )
         if result.get("action") not in {
             "plan_create",
@@ -197,6 +202,12 @@ async def target_resolve(state):
     target = None
     sources = []
     if action == "feedback":
+        if inp.get("feedback_exercise_id"):
+            with db.engine.begin() as conn:
+                exercise = c.require(db.one(conn, db.exercises, UUID(inp["feedback_exercise_id"]), task["owner_id"]))
+                if exercise["agent_id"] != task["agent_id"]:
+                    raise c.Problem("RESOURCE_NOT_FOUND", "题目不属于当前智能体", 404)
+            return {"target": None, "sources": [], "intent": state["intent"]}
         with db.engine.begin() as conn:
             rows = list(
                 conn.execute(
@@ -244,8 +255,12 @@ async def target_resolve(state):
                 )
             if len(matches) == 1:
                 with_claim = assert_claim(conn, task)
-                snapshot = {**inp, "feedback_exercise_id": str(matches[0]["id"])}
-                updated = db.update(conn, db.tasks, with_claim["id"], input_snapshot=snapshot)
+                revision_id, frozen = c.freeze_exercise(conn, matches[0])
+                snapshot = {**inp, "feedback_exercise_id": str(matches[0]["id"]), "exercise_snapshot": frozen}
+                updated = db.update(conn, db.tasks, with_claim["id"], input_snapshot=snapshot,
+                                    exercise_revision_id=revision_id, exercise_snapshot=frozen)
+                for message_id in (task["user_message_id"], task["assistant_message_id"]):
+                    db.update(conn, db.messages, message_id, exercise_revision_id=revision_id, exercise_snapshot=frozen)
                 task.update(dict(updated))
             elif rows or explicit:
                 db.update(conn, db.tasks, assert_claim(conn, task)["id"], action="clarify")
@@ -370,25 +385,28 @@ async def context(state):
             )
         ).mappings():
             bound.setdefault(link["message_id"], []).append(link["attachment_id"])
-        exercise_id = inp.get("answer_exercise_id") or inp.get("feedback_exercise_id")
+        exercise_id = inp.get("answer_exercise_id") or inp.get("feedback_exercise_id") or inp.get("dispatch_exercise_id")
         answer_exercise = (
             db.one(conn, db.exercises, UUID(exercise_id), task["owner_id"]) if exercise_id else None
         )
+        if inp.get("exercise_snapshot"):
+            answer_exercise = dict(inp["exercise_snapshot"])
         exercise_sources = []
         if answer_exercise:
             answer_exercise = dict(answer_exercise)
-            exercise_sources = [
-                x
-                for x in c.linked_sources(
-                    conn, db.message_sources, "message_id", answer_exercise["message_id"]
-                )
-                if str(x["id"]) in answer_exercise["source_ids"] and x["status"] != "deleted"
-            ]
+            question_source_ids = {str(x) for x in answer_exercise.get("source_ids", [])}
+            answer_source_ids = {str(x) for x in (answer_exercise.get("known_answer_snapshot") or {}).get("source_ids", [])}
+            for ident in sorted(question_source_ids | answer_source_ids):
+                source_row = db.one(conn, db.sources, UUID(str(ident)), task["owner_id"])
+                if source_row:
+                    source = c.source(source_row)
+                    if source["status"] not in {"deleted", "template_not_imported"}:
+                        exercise_sources.append(source)
             live_ids = {str(x["id"]) for x in exercise_sources}
             hidden = answer_exercise.get("known_answer_snapshot")
             if hidden and not set(hidden.get("source_ids", [])).issubset(live_ids):
                 answer_exercise["known_answer_snapshot"] = None
-            answer_exercise["source_ids"] = sorted(live_ids)
+            answer_exercise["source_ids"] = sorted(question_source_ids & live_ids)
     if images and not cfg["supports_images"]:
         raise c.Problem("MODEL_IMAGE_UNSUPPORTED", "此模型不支持历史图片", 409)
     if len(images) > cfg["max_images"]:
@@ -405,7 +423,7 @@ async def context(state):
         system += (
             "\n本次明确题目："
             + json.dumps(jsonable_encoder(dict(answer_exercise)), ensure_ascii=False)
-            + "\n已有答案标资料答案，否则标学迹推导。"
+            + "\n已有答案按origin_kind区分模板预置、用户编辑或资料答案，不冒充质量认证；没有答案则标学迹推导。"
         )
     total_text = (
         system
@@ -514,6 +532,12 @@ async def kb_retrieve(state):
     bases = task["config_snapshot"]["knowledge_base_ids"]
     if not bases or state["intent"].get("retrieval_mode") in {"none", "web"}:
         return {"candidates": []}
+    query = state["intent"].get("retrieval_query") or task["input_snapshot"]["content_text"] or "图片学习问题"
+    cache = state.get("shared_budget", {}).setdefault("kb_cache", {})
+    fingerprint = (task["config_snapshot"].get("embedding") or {}).get("index_fingerprint")
+    cache_key = (str(task["owner_id"]), query, tuple(sorted(bases)), fingerprint)
+    if cache_key in cache:
+        return {"candidates": cache[cache_key], "execution_info": [*state.get("execution_info", []), "本轮已复用相同知识库查询结果"]}
     publish(task, "retrieve")
     try:
         vector = (
@@ -533,9 +557,10 @@ async def kb_retrieve(state):
         from .vectors import retrieve
         rows = await asyncio.to_thread(retrieve, task["owner_id"], [UUID(x) for x in bases],
             task["config_snapshot"]["embedding"]["index_fingerprint"], vector)
-    except Exception as exc:
+    except Exception:
         return {"candidates": [], "degradation": [*state["degradation"], "知识库检索暂时不可用"],
                 "execution_info": [*state.get("execution_info", []), "本次知识库检索失败，未取得资料"]}
+    cache[cache_key] = rows
     return {"candidates": rows, "execution_info": [*state.get("execution_info", []), f"本次已检索知识库，取得{len(rows)}条有效候选"]}
 
 
@@ -622,6 +647,12 @@ async def web_search(state):
         return {"degradation": degradation, "tool_evidence": []}
     task = state["task"]
     gateway = state["gateway"]
+    shared = state.get("shared_budget", {})
+    limits = task["config_snapshot"].get("limits", {})
+    if (shared.get("tool_rounds_used", 0) >= limits.get("tool_rounds", 3)
+        or shared.get("tool_slots_used", 0) >= limits.get("tool_slots", 6)):
+        return {"tool_evidence": [], "degradation": [*degradation, "整轮工具预算已用尽，按已有资料回答"],
+                "execution_info": [*info, "整轮工具预算已用尽，本角色未调用外部工具"]}
     publish(task, "search")
     sources = list(state["sources"])
     evidence = []
@@ -663,23 +694,28 @@ async def web_search(state):
             functions = [mcp_tools.function_schema(t) for t in tools]
             lookup = {mcp_tools.function_name(t): t for t in tools}
             function_cost = input_estimate(json.dumps(functions, ensure_ascii=False))
-            calls_used = 0
-            query_cache = {}
-            for _ in range(task["config_snapshot"].get("limits", {}).get("tool_rounds", 3)):
-                if not functions or calls_used >= task["config_snapshot"].get("limits", {}).get("tool_slots", 6):
+            shared = state.get("shared_budget", {})
+            shared.setdefault("tool_rounds_used", 0)
+            shared.setdefault("tool_slots_used", 0)
+            query_cache = shared.setdefault("tool_cache", {})
+            rounds_limit = task["config_snapshot"].get("limits", {}).get("tool_rounds", 3)
+            slots_limit = task["config_snapshot"].get("limits", {}).get("tool_slots", 6)
+            while shared["tool_rounds_used"] < rounds_limit:
+                if not functions or shared["tool_slots_used"] >= slots_limit:
                     break
                 if message_budget(messages) + function_cost > budget:
                     raise c.Problem("CONTEXT_LIMIT_EXCEEDED", "工具上下文超过模型容量，请缩小问题", 409)
+                shared["tool_rounds_used"] += 1
                 assistant = await gateway.tool_turn(messages, functions)
                 calls = assistant.get("tool_calls", [])
                 if not calls:
                     break
-                if len(calls) > task["config_snapshot"].get("limits", {}).get("tool_slots", 6) - calls_used:
+                if len(calls) > slots_limit - shared["tool_slots_used"]:
                     degradation.append("工具调用达到次数上限，按已有资料回答")
                     break
                 messages.append(assistant)
                 for call in calls:
-                    calls_used += 1
+                    shared["tool_slots_used"] += 1
                     try:
                         tool = lookup.get(call["function"]["name"])
                         if not tool:
@@ -723,7 +759,7 @@ async def web_search(state):
                         content = "工具执行失败，缺失部分使用模型知识"
                         degradation.append(content)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
-            if calls_used >= task["config_snapshot"].get("limits", {}).get("tool_slots", 6):
+            if shared["tool_slots_used"] >= slots_limit or shared["tool_rounds_used"] >= rounds_limit:
                 degradation.append("工具调用达到次数上限，按已有资料回答")
     except asyncio.CancelledError:
         raise
@@ -787,7 +823,7 @@ async def answer_stream(state):
     async def preview(text):
         nonlocal last
         clock = asyncio.get_running_loop().time()
-        if clock - last >= 0.25:
+        if clock - last >= 0.25 and not state.get("role"):
             publish(task, text=text)
             last = clock
 
@@ -837,7 +873,8 @@ async def answer_stream(state):
         )
     else:
         text = await state["gateway"].complete(messages, on_chunk=preview)
-    publish(task, text=text)
+    if not state.get("role"):
+        publish(task, text=text)
     return {"answer": text, "exercises": exercise_list}
 
 
@@ -958,6 +995,8 @@ def used_sources(state):
     for exercise in state.get("exercises", []):
         ids.update(str(s) for s in exercise.get("source_ids", []))
         ids.update(str(s) for s in (exercise.get("known_answer_snapshot") or {}).get("source_ids", []))
+    for update in state.get("answer_updates", []):
+        ids.update(update["source_ids"])
     if state.get("plan"):
         for stage in state["plan"]["stages"]:
             for item in stage["tasks"]:
@@ -989,12 +1028,19 @@ async def atomic_commit(state):
     with db.engine.begin() as conn:
         row = assert_claim(conn, task)
         plan_row = None
+        locked_exercises = {}
+        lock_targets = [("exercise", UUID(str(update["exercise_id"]))) for update in state.get("answer_updates", [])]
+        if state["action"] == "plan_update" and row["target_plan_id"]:
+            lock_targets.append(("plan", row["target_plan_id"]))
+        for kind, ident in sorted(lock_targets, key=lambda item: str(item[1])):
+            if kind == "exercise":
+                exercise = c.require(db.one(conn, db.exercises, ident, task["owner_id"], lock=True))
+                if exercise["agent_id"] != task["agent_id"]:
+                    raise c.Problem("RESOURCE_NOT_FOUND", "练习不存在", 404)
+                locked_exercises[str(ident)] = exercise
+            else:
+                plan_row = db.one(conn, db.learning_plans, ident, task["owner_id"], lock=True)
         if state["action"] == "plan_update":
-            plan_row = (
-                db.one(conn, db.learning_plans, row["target_plan_id"], task["owner_id"], lock=True)
-                if row["target_plan_id"]
-                else None
-            )
             if not plan_row:
                 raise c.Problem("TARGET_DELETED", "目标计划已删除，未保存修改", 409)
             if plan_row["content_version"] != row["base_plan_version"]:
@@ -1039,7 +1085,7 @@ async def atomic_commit(state):
             )
         mutation = None
         answer = state["answer"]
-        if state["action"] in {"plan_create", "plan_update"}:
+        if state.get("plan"):
             value = dict(state["plan"])
             title = value.pop("title")
             if plan_row:
@@ -1066,7 +1112,19 @@ async def atomic_commit(state):
                     last_updated_by_task_id=task["id"],
                 )
                 kind = "created"
-            for i, source in enumerate(sources):
+            from .learning_content import record_plan
+            plan_row = record_plan(conn, plan_row)
+            stage_ids = {stage["id"] for stage in value["stages"]}
+            task_ids = {item["id"] for stage in value["stages"] for item in stage["tasks"]}
+            for link in conn.execute(sa.select(db.exercise_plan_links).where(
+                db.exercise_plan_links.c.plan_id == plan_row["id"]
+            )).mappings().all():
+                if ((link["stage_id"] and str(link["stage_id"]) not in stage_ids)
+                    or (link["task_id"] and str(link["task_id"]) not in task_ids)):
+                    conn.execute(db.exercise_plan_links.delete().where(db.exercise_plan_links.c.id == link["id"]))
+            plan_source_ids = {str(ident) for stage in value["stages"] for item in stage["tasks"]
+                               for ident in item["resource_source_ids"]}
+            for i, source in enumerate(s for s in sources if str(s["id"]) in plan_source_ids):
                 conn.execute(
                     db.plan_sources.insert().values(
                         plan_id=plan_row["id"],
@@ -1076,7 +1134,15 @@ async def atomic_commit(state):
                         content_version=plan_row["content_version"],
                     )
                 )
-            answer = render_plan({"title": plan_row["name"], **value})
+            final_plan_text = render_plan({"title": plan_row["name"], **value})
+            if not state.get("dispatch"):
+                answer = final_plan_text
+            elif state.get("reply_parts"):
+                # A concurrent rename does not alter content_version. Render the
+                # canonical plan only after locking its current name, while
+                # preserving the other roles' independently assembled sections.
+                answer = "\n\n".join(final_plan_text if part["kind"] == "plan" else part["text"]
+                                      for part in state["reply_parts"])
             validate_answer_sources(answer, sources)
             mutation = {
                 "kind": kind,
@@ -1085,6 +1151,7 @@ async def atomic_commit(state):
                 "committed": True,
             }
         exercise_ids = []
+        exercise_cards = []
         for i, exercise in enumerate(state.get("exercises", [])):
             e = db.insert(
                 conn,
@@ -1100,6 +1167,29 @@ async def atomic_commit(state):
                 known_answer_snapshot=exercise.get("known_answer_snapshot"),
             )
             exercise_ids.append(str(e["id"]))
+            from .learning_content import record_exercise
+            e = record_exercise(conn, e)
+            exercise_cards.append(jsonable_encoder(c.exercise(e)))
+            if "_plan_link" in exercise and plan_row:
+                link = exercise["_plan_link"]
+                db.insert(conn, db.exercise_plan_links, owner_id=task["owner_id"], exercise_id=e["id"],
+                          plan_id=plan_row["id"], stage_id=UUID(link["stage_id"]) if link.get("stage_id") else None,
+                          task_id=UUID(link["task_id"]) if link.get("task_id") else None)
+        for update in state.get("answer_updates", []):
+            current = locked_exercises[str(update["exercise_id"])]
+            if current["content_version"] != update["base_version"]:
+                if update.get("historical_request"):
+                    continue
+                raise c.Problem("VERSION_CONFLICT", "练习已被修改，未保存本轮结果", 409)
+            hidden = current["known_answer_snapshot"] or {}
+            if hidden.get("answer_text") or hidden.get("explanation"):
+                continue
+            from .learning_content import record_exercise
+            source_ids = sorted({str(ident) for ident in current["source_ids"]} | set(update["source_ids"]))
+            current = db.update(conn, db.exercises, current["id"], content_version=current["content_version"] + 1,
+                source_ids=source_ids, known_answer_snapshot={"answer_text": update["answer_text"],
+                    "explanation": None, "source_ids": update["source_ids"], "origin_kind": "derived"})
+            record_exercise(conn, current, "derived")
         db.update(
             conn, db.messages, row["assistant_message_id"], content_text=answer, response_status="succeeded"
         )
@@ -1112,6 +1202,7 @@ async def atomic_commit(state):
                 "preview_text": answer,
                 "sources": jsonable_encoder(sources),
                 "exercise_ids": exercise_ids,
+                "exercise_cards": exercise_cards,
                 "plan_mutation": mutation,
                 "execution_info": state.get("execution_info", []),
             },
@@ -1120,54 +1211,10 @@ async def atomic_commit(state):
 
 
 def build_graph():
-    graph = StateGraph(State)
-    for name, node in [
-        ("intent", intent),
-        ("target_resolve", target_resolve),
-        ("context", context),
-        ("kb_retrieve", kb_retrieve),
-        ("rerank", rerank),
-        ("coverage", coverage),
-        ("web_search", web_search),
-        ("answer_stream", answer_stream),
-        ("plan_extract", plan_extract),
-        ("plan_validate", plan_validate),
-        ("plan_repair", plan_repair),
-        ("atomic_commit", atomic_commit),
-    ]:
-        graph.add_node(name, node)
-    chain = [
-        "kb_retrieve",
-        "rerank",
-        "coverage",
-        "web_search",
-        "answer_stream",
-    ]
-    graph.add_edge(START, "intent")
-    graph.add_edge("intent", "target_resolve")
-    graph.add_conditional_edges(
-        "target_resolve",
-        lambda state: "atomic_commit" if state["action"] == "clarify" and state.get("answer") else "context",
-    )
-    graph.add_conditional_edges(
-        "context", lambda state: "answer_stream" if state["action"] == "clarify" else "kb_retrieve"
-    )
-    for a, b in zip(chain, chain[1:]):
-        graph.add_edge(a, b)
-    graph.add_conditional_edges(
-        "answer_stream",
-        lambda state: (
-            "plan_extract" if state["action"] in {"plan_create", "plan_update"} else "atomic_commit"
-        ),
-    )
-    graph.add_edge("plan_extract", "plan_validate")
-    graph.add_conditional_edges(
-        "plan_validate", lambda state: "plan_repair" if state["errors"] else "atomic_commit"
-    )
-    graph.add_edge("plan_repair", "plan_validate")
-    graph.add_edge("atomic_commit", END)
-    return graph.compile()
+    from .orchestration import build_graph as build_supervisor
+    return build_supervisor()
 
 
 async def run_chat(task):
-    await build_graph().ainvoke({"task": task, "gateway": Gateway(task)}, config={"recursion_limit": 25})
+    from .orchestration import run_chat as run_supervisor
+    await run_supervisor(task)

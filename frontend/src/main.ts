@@ -11,6 +11,7 @@ import WorkspaceView from "./views/WorkspaceView.vue";
 import { useSession } from "./stores/session";
 import "./style.css";
 import "./responsive.css";
+import "./learning.css";
 import "katex/dist/katex.min.css";
 const pinia = createPinia();
 const router = createRouter({
@@ -31,7 +32,7 @@ router.beforeEach(async (to) => {
     if (!admin.ready) await admin.restore();
     if (!admin.user && to.path !== "/admin/login") return "/admin/login";
     if (admin.user && to.path === "/admin/login") return "/admin";
-    const valid = ["overview", "users", "models", "prompts", "skills", "mcp", "agents", "file-runs", "task-runs", "settings", "operation-logs"];
+    const valid = ["overview", "users", "models", "prompts", "skills", "mcp", "roles", "agent-templates", "agents", "file-runs", "task-runs", "settings", "operation-logs"];
     if (to.params.section && !valid.includes(String(to.params.section))) return "/admin";
     return;
   }

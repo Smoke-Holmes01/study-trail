@@ -22,6 +22,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   ).toBe(200);
   await page.goto("/agents");
   await page.getByRole("button", { name: "创建智能体", exact: true }).click();
+  await page.getByRole("button", { name: "用户自定义", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("tab")).toHaveCount(5);
   await dialog.getByRole("button", { name: "创建智能体", exact: true }).click();
@@ -32,15 +33,16 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await dialog.getByLabel("智能体名称").fill("能力验证伙伴");
   await dialog.getByRole("tab", { name: "MCP", exact: true }).click();
   await expect(
-    dialog.getByRole("switch", { name: "启用 Exa 网络搜索" }),
+    dialog.getByRole("switch", { name: "启用 Exa 测试服务" }),
   ).toHaveAttribute("aria-checked", "true");
-  await dialog.getByRole("switch", { name: "启用 Exa 网络搜索", exact: true }).click();
+  await dialog.getByRole("switch", { name: "启用 Exa 测试服务", exact: true }).click();
   await dialog.getByRole("tab", { name: "技能", exact: true }).click();
   await dialog
     .getByRole("switch", { name: "启用 practice", exact: true })
     .click();
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "创建智能体", exact: true }).click();
+  await page.getByRole("button", { name: "用户自定义", exact: true }).click();
   await dialog.getByLabel("智能体名称").fill("能力验证伙伴");
   await dialog.getByRole("button", { name: "创建智能体", exact: true }).click();
   await expect(dialog.getByRole("tab", { name: "系统提示词" })).toHaveAttribute(
@@ -57,7 +59,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await dialog.getByLabel("搜索技能").fill("出题");
   await expect(dialog.locator(".skill-card")).toHaveCount(1);
   await dialog.getByLabel("搜索技能").fill("");
-  await page.screenshot({ path: "../.local/v004/capabilities-modal-desktop.png" });
+  await page.screenshot({ path: "../.local/v010-verify/capabilities-modal-desktop.png" });
   const created = page.waitForResponse(
     (r) =>
       r.request().method() === "POST" && r.url().endsWith("/api/v1/agents"),
@@ -104,7 +106,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await composer.fill("/");
   await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(3);
   await composer.press("ArrowDown");
-  await page.screenshot({ path: "../.local/v004/capabilities-slash-desktop.png" });
+  await page.screenshot({ path: "../.local/v010-verify/capabilities-slash-desktop.png" });
   await composer.press("Escape");
   await expect(page.getByRole("listbox")).not.toBeVisible();
   await page.getByLabel("智能体操作").click();
@@ -124,7 +126,7 @@ test("agent tabs, draft switches, slash picker and failed send preserve skill se
   await page.getByRole("button", { name: "编辑智能体", exact: true }).click();
   await dialog.getByRole("tab", { name: "技能", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "../.local/v004/capabilities-modal-mobile.png" });
+  await page.screenshot({ path: "../.local/v010-verify/capabilities-modal-mobile.png" });
   expect(
     (await dialog.locator(".agent-tabs").boundingBox())!.height,
   ).toBeLessThan(80);

@@ -41,6 +41,7 @@ BOUNDS = {k: (1, v) for k, v in DEFAULT_LIMITS.items()}
 BOUNDS.update(
     ai_timeout_seconds=(1, 3600), file_timeout_seconds=(1, 3600), tool_result_max_bytes=(16384, 65536)
 )
+ROLE_NAMES = {"plan": "学习计划", "tutor": "答疑讲解", "exercise": "练习生成", "explanation": "答案解析", "feedback": "作答反馈"}
 
 
 def digest(value):
@@ -159,10 +160,18 @@ def validate(kind, payload, purpose=None, stable_id=None):
             "parameter_schemas",
         },
         "limits": set(DEFAULT_LIMITS),
+        "role": {"body", "allowed_mcp_ids", "allowed_skill_ids"},
     }
     if kind not in allowed or set(payload) - allowed[kind]:
         invalid("配置包含未知字段")
-    if kind == "limits":
+    if kind == "role":
+        if stable_id not in ROLE_NAMES or not isinstance(payload.get("body"), str) or not payload["body"].strip() or len(payload["body"].encode()) > 65536:
+            invalid("角色职责正文或固定标识不合法")
+        for key in ("allowed_mcp_ids", "allowed_skill_ids"):
+            values = payload.get(key)
+            if not isinstance(values, list) or any(not isinstance(x, str) or not x for x in values) or len(set(values)) != len(values):
+                invalid("角色允许能力必须为不重复的标识数组")
+    elif kind == "limits":
         if set(payload) != set(DEFAULT_LIMITS):
             invalid("系统限制字段不完整")
         for key, (lo, hi) in BOUNDS.items():
@@ -616,6 +625,10 @@ def snapshot(conn, model_id=None, *, generation_required=True):
     result["prompts"] = {p: bound(conn, "prompt:" + p)[1]["payload"]["body"] for p in PURPOSES}
     from .builtin_search import configuration
     result["builtin_search"] = configuration()
+    result["roles"] = {}
+    for role in conn.execute(sa.select(db.platform_configs).where(db.platform_configs.c.kind == "role", db.platform_configs.c.deleted_at.is_(None))).mappings():
+        rev = require(db.one(conn, db.config_revisions, role["current_revision_id"]))
+        result["roles"][role["stable_id"]] = {"config_id": str(role["id"]), "revision_id": str(rev["id"]), **rev["payload"]}
     return result
 
 

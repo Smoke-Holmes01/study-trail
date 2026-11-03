@@ -85,11 +85,17 @@ def file_hash(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def relational_snapshot(engine):
+def relational_snapshot(engine, legacy_types=False):
     result = {}
     with engine.connect() as conn:
         for name in sorted(sa.inspect(conn).get_table_names()):
-            table = db.metadata.tables[name] if name in db.metadata.tables else sa.Table(name, sa.MetaData(), autoload_with=conn)
+            table = sa.Table(name, sa.MetaData(), autoload_with=conn)
+            if legacy_types and name in db.metadata.tables:
+                # Older manifests hashed the application's UUID/UTC/Boolean
+                # values. Reflect names first so old schemas never select new columns.
+                for column in table.c:
+                    if column.name in db.metadata.tables[name].c:
+                        column.type = db.metadata.tables[name].c[column.name].type
             rows = [normalized(dict(r)) for r in conn.execute(sa.select(table)).mappings()]
             rows.sort(key=lambda row: json.dumps(row, sort_keys=True, ensure_ascii=False))
             result[name] = {"count": len(rows), "sha256": digest(rows)}
@@ -186,7 +192,9 @@ def backup(timeout=3600, allow_test_source=False):
         # it only after the physical archive exists. All application writers remain stopped.
         compose("start", "chroma", capture_output=True)
         wait_chroma(settings().chroma_host, settings().chroma_port)
-        manifest = {"version": "0.0.4", "migration": "mysql_0001", "source_database": source_database, "backup_complete": True,
+        with db.engine.connect() as connection:
+            migration = connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
+        manifest = {"version": "0.0.4", "snapshot_format": "mysql-reflected-v1", "migration": migration, "source_database": source_database, "backup_complete": True,
                     "restore_verified": False, "mysql": relational_snapshot(db.engine),
                     "chroma": chroma_snapshot(vectors.client()), "storage": storage_manifest(storage)}
         manifest["artifacts"] = {p.name: file_hash(p) for p in target.iterdir() if p.is_file()}
@@ -223,7 +231,7 @@ def restore_verify(target):
     if not target.is_relative_to((LOCAL / "backups").resolve()):
         raise RuntimeError("Only local v004 backup directories are accepted")
     manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
-    if not manifest.get("backup_complete") or manifest["version"] != "0.0.4" or manifest["migration"] != "mysql_0001":
+    if not manifest.get("backup_complete") or manifest["version"] != "0.0.4" or manifest["migration"] not in {"mysql_0001", "mysql_0002"}:
         raise RuntimeError("Incomplete or incompatible backup")
     for name, expected in manifest["artifacts"].items():
         path = (target / name).resolve()
@@ -266,7 +274,7 @@ def restore_verify(target):
         engine = sa.create_engine(sa.URL.create("mysql+pymysql", username="root", password=password, host="127.0.0.1", port=mysql_port, database="study_trail", query={"charset": "utf8mb4"}))
         client = vectors._client("127.0.0.1", chroma_port)
         safe_extract(target / "storage.tar.gz", work)
-        if relational_snapshot(engine) != manifest["mysql"] or chroma_snapshot(client) != manifest["chroma"] or storage_manifest(work / "storage") != manifest["storage"]:
+        if relational_snapshot(engine, legacy_types="snapshot_format" not in manifest) != manifest["mysql"] or chroma_snapshot(client) != manifest["chroma"] or storage_manifest(work / "storage") != manifest["storage"]:
             raise RuntimeError("Restored database, vectors or private files differ")
         effective = json.loads((target / "effective-config.json").read_text(encoding="utf-8"))
         decrypted = 0
@@ -287,7 +295,12 @@ def restore_verify(target):
         verify_env = {**os.environ, "DATABASE_URL": engine.url.render_as_string(hide_password=False),
                       "CHROMA_HOST": "127.0.0.1", "CHROMA_PORT": str(chroma_port), "CHROMA_COLLECTION": effective["chroma_collection"],
                       "PLATFORM_KEYS": json.dumps(effective["platform_keys"]), "PLATFORM_KEY_ID": effective["platform_key_id"]}
-        subprocess.run([sys.executable, "tools/vector_index.py", "check"], cwd=ROOT / "backend", env=verify_env, check=True, capture_output=True)
+        verification = subprocess.run([sys.executable, "tools/project_python.py", "tools/vector_index.py", "check"], cwd=ROOT / "backend", env=verify_env, capture_output=True)
+        if verification.returncode:
+            failure_log = work / "vector-verification.error.log"
+            failure_log.write_bytes(verification.stderr)
+            protect(failure_log)
+            raise RuntimeError("Restored vector verification failed; see the private recovery error log")
         queried = 0
         for item in client.list_collections():
             collection = client.get_collection(item.name, embedding_function=None)

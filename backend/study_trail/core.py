@@ -257,7 +257,7 @@ def source(row):
         "kind": row["kind"],
         "title": row["title_snapshot"],
         "file_id": row["file_id"],
-        "status": "external" if row["kind"] == "web" else "available" if row["file_id"] else "deleted",
+        "status": "template_not_imported" if row["kind"] == "template_placeholder" else "external" if row["kind"] == "web" else "available" if row["file_id"] else "deleted",
         "url": row["url_snapshot"],
         "locator": row["locator_snapshot"],
         "excerpt": row["excerpt_snapshot"],
@@ -276,9 +276,43 @@ def linked_sources(conn, link, key, ident):
 
 
 def exercise(row):
-    return public(
+    out = public(
         row, "id", "message_id", "conversation_id", "position", "question_text", "provenance", "source_ids"
     )
+    for key in ("agent_id", "current_revision_id", "content_version", "origin_kind", "user_edited", "adoption_id"):
+        if key in row:
+            out[key] = row[key]
+    return out
+
+
+def freeze_exercise(conn, row, version=None):
+    """Immutable task input; later personal edits cannot rewrite this attempt."""
+    snapshot = jsonable_encoder({k: row.get(k) for k in (
+        "id", "agent_id", "conversation_id", "message_id", "position", "question_text", "provenance",
+        "source_ids", "known_answer_snapshot", "origin_kind", "content_version", "current_revision_id")})
+    revision_id = row.get("current_revision_id")
+    if version is not None:
+        revision_id = conn.scalar(sa.select(db.exercise_revisions.c.id).where(
+            db.exercise_revisions.c.exercise_id == row["id"], db.exercise_revisions.c.version == version,
+            db.exercise_revisions.c.owner_id == row["owner_id"]))
+        require(revision_id)
+    if revision_id:
+        revision = require(db.one(conn, db.exercise_revisions, revision_id, row["owner_id"]))
+        payload = revision["payload"]
+        snapshot.update(content_version=revision["version"], current_revision_id=str(revision_id),
+                        known_answer_snapshot=None, origin_kind=revision["origin_kind"])
+        snapshot.update({k: payload[k] for k in ("question_text", "provenance", "source_ids") if k in payload})
+        if payload.get("answer_text") or payload.get("explanation"):
+            snapshot["known_answer_snapshot"] = {"answer_text": payload["answer_text"],
+                "explanation": payload.get("explanation", ""), "source_ids": payload.get("answer_source_ids", payload.get("source_ids", [])),
+                "origin_kind": payload.get("answer_origin_kind", revision["origin_kind"])}
+    return revision_id, snapshot
+
+
+def historical_exercise(conn, row):
+    """The source-message card shows its initial immutable revision."""
+    _, snapshot = freeze_exercise(conn, row, version=1)
+    return exercise({**row, **snapshot})
 
 
 def message(conn, row):
@@ -308,8 +342,11 @@ def message(conn, row):
     out["sources"] = linked_sources(conn, db.message_sources, "message_id", row["id"])
     task_row = db.one(conn, db.tasks, row["task_id"], row["owner_id"]) if row["task_id"] else None
     out["execution_info"] = task_row["result_snapshot"].get("execution_info", []) if task_row else []
-    out["exercises"] = [
-        exercise(r)
+    from .execution import role_runs
+    out["role_runs"] = role_runs(conn, task_row["id"]) if task_row else []
+    frozen_cards = task_row["result_snapshot"].get("exercise_cards") if task_row and task_row["assistant_message_id"] == row["id"] else None
+    out["exercises"] = frozen_cards if frozen_cards is not None else [
+        historical_exercise(conn, r)
         for r in conn.execute(
             sa.select(db.exercises)
             .where(db.exercises.c.message_id == row["id"])
@@ -327,6 +364,9 @@ def plan(conn, row):
             "agent_id",
             "name",
             "content_version",
+            "origin_kind",
+            "user_edited",
+            "adoption_id",
             "source_conversation_id",
             "source_message_id",
             "created_at",
@@ -367,6 +407,8 @@ def agent(conn, row):
         )
         .limit(1)
     ).scalar()
+    out["adoption_id"] = conn.scalar(sa.select(db.template_adoptions.c.id).where(
+        db.template_adoptions.c.agent_id == row["id"], db.template_adoptions.c.owner_id == row["owner_id"]))
     return out
 
 
@@ -448,6 +490,8 @@ def task(conn, row):
         "plan_mutation": None,
         **row["result_snapshot"],
     }
+    from .execution import role_runs
+    out["role_runs"] = role_runs(conn, row["id"])
     for s in out["result"]["sources"]:
         if s.get("kind") == "file" and (
             not s.get("file_id") or not db.one(conn, db.files, UUID(str(s["file_id"])), row["owner_id"])

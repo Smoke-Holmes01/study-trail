@@ -190,7 +190,7 @@ def test_expired_lease_rejects_late_commit(client, resource):
 
 def test_stop_commit_lock_order_both_outcomes(client, resource):
     path = f"/conversations/{resource['conversation']['id']}/messages"
-    data = post(client, path, {"content_text": "问题"}).json()["data"]
+    post(client, path, {"content_text": "问题"})
     claimed = claim("test-worker")
     post(client, f"/tasks/{claimed['id']}/stop", {})
     import asyncio
@@ -202,7 +202,7 @@ def test_stop_commit_lock_order_both_outcomes(client, resource):
             assert_claim(conn, claimed)
         row = db.one(conn, db.tasks, claimed["id"], lock=True)
         terminal(conn, row, "stopped")
-    next_data = post(client, path, {"content_text": "下一题"}).json()["data"]
+    post(client, path, {"content_text": "下一题"})
     claimed = claim("test-worker")
     with db.engine.begin() as conn:
         terminal(conn, assert_claim(conn, claimed), "succeeded")
@@ -243,15 +243,24 @@ def test_database_guards_cross_owner_private_references(client, resource):
             )
 
 
-def test_openapi_contract_has_86_operations_and_public_models(client):
+def test_openapi_contract_has_117_operations_and_public_models(client):
     spec = client.get("/openapi.json").json()
     operations = [
         value["operationId"]
         for path in spec["paths"].values()
         for method, value in path.items()
-        if method in {"get", "post", "patch", "delete"}
+        if method in {"get", "post", "put", "patch", "delete"}
     ]
-    assert len(operations) == len(set(operations)) == 86
+    assert len(operations) == len(set(operations)) == 117
+    import json
+    import re
+    from pathlib import Path
+    expected = json.loads((Path(__file__).parent / "fixtures/openapi-v010-contract.json").read_text(encoding="utf-8"))
+    actual = {(value["operationId"], method, re.sub(r"\{[^}]+\}", "{}", path))
+              for path, methods in spec["paths"].items() for method, value in methods.items()
+              if method in {"get", "post", "put", "patch", "delete"}}
+    assert actual == {(x["id"], x["method"], x["path"]) for x in expected}
+    assert len({x[2] for x in actual}) == 90
     assert "StudentDTO" in spec["components"]["schemas"]
     assert "password_hash" not in json_schema(spec["components"]["schemas"]["StudentDTO"])
 

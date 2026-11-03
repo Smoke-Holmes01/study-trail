@@ -73,6 +73,25 @@ def install(app):
         "AD-S01": o.AdminSettingsDTO, "AD-S02": o.AdminSettingsDTO, "AD-L01": o.Page[o.AdminOperationLogDTO],
     })
     created.add("AD-C02")
+    from . import v010_outputs as v
+    simple.update({
+        "LT-01": o.Page[v.TemplateSummaryDTO], "LT-02": v.TemplatePreviewDTO,
+        "LT-03": v.AdoptionDTO, "LT-04": v.AdoptionDTO,
+        "LT-05": v.ImportBatchDTO, "LT-06": v.ImportBatchDTO, "LT-07": v.ImportBatchDTO,
+        "P-06": o.PlanDTO, "Q-03": o.Page[v.IndependentExerciseDTO],
+        "Q-04": v.IndependentExerciseDTO, "Q-05": v.IndependentExerciseDTO,
+        "Q-06": o.DeletedDTO, "Q-07": v.ExistingAnswerDTO,
+        "Q-08": o.ChatAcceptedDTO, "Q-09": o.ChatAcceptedDTO,
+        "AD-RA01": o.Page[o.AdminConfigDTO], "AD-RA02": o.AdminConfigDTO, "AD-RA03": o.AdminConfigDTO,
+        "AD-LT01": o.Page[v.AdminTemplateDTO], "AD-LT02": v.AdminTemplateDTO,
+        "AD-LT03": v.AdminTemplateDTO, "AD-LT04": v.TemplateVersionDTO,
+        "AD-LT05": v.TemplateVersionDTO, "AD-LT06": v.AdminTemplateDTO,
+        "AD-LT07": v.AdminTemplateDTO, "AD-LT08": o.DeletedDTO,
+        "AD-LT09": o.Page[v.TemplateAssetDTO], "AD-LT10": v.AssetUploadDTO,
+        "AD-LT11": v.AssetPreviewDTO, "AD-LT12": v.AssetTaskDTO, "AD-LT13": o.DeletedDTO,
+    })
+    created.update({"LT-03", "Q-04", "AD-LT02", "AD-LT04"})
+    accepted.update({"LT-05", "LT-07", "Q-08", "Q-09", "AD-LT10", "AD-LT12"})
 
     def document():
         if app.openapi_schema:

@@ -26,6 +26,20 @@ def main():
     protect(infra)
     protect(backend)
     compose("up", "-d", "--wait")
+    import sqlalchemy as sa
+    from dotenv import dotenv_values
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    engine = sa.create_engine(dotenv_values(backend)["DATABASE_URL"])
+    try:
+        with engine.connect() as conn:
+            tables = set(sa.inspect(conn).get_table_names())
+            head = ScriptDirectory.from_config(Config(str(ROOT / "backend/alembic.ini"))).get_current_head()
+            current = conn.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() if "alembic_version" in tables else None
+            if tables - {"alembic_version"} and current != head:
+                raise RuntimeError("Existing installation requires a verified backup and apply_upgrade.py; install never upgrades populated old schemas")
+    finally:
+        engine.dispose()
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=ROOT / "backend", check=True)
     subprocess.run([sys.executable, "tools/bootstrap_platform.py", "--admin-login", args.admin_login, "--generate-admin"], cwd=ROOT / "backend", check=True)
     subprocess.run([sys.executable, "tools/vector_index.py", "init", "--apply"], cwd=ROOT / "backend", check=True)

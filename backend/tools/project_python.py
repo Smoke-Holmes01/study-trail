@@ -1,5 +1,6 @@
 """Run with the project's site initialization when using Windows base Python."""
 import runpy
+import os
 import site
 import sys
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 backend = Path(__file__).parents[1]
 sys.path.insert(0, str(backend))
 site.addsitedir(str(backend / ".venv/Lib/site-packages"))
+os.environ["PYTHONPATH"] = os.pathsep.join([str(backend), str(backend / ".venv/Lib/site-packages"), os.environ.get("PYTHONPATH", "")])
 sys.argv = sys.argv[1:]
 if not sys.argv:
     raise SystemExit("A module or script is required")

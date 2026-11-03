@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +15,13 @@ from study_trail.config import settings
 
 if sa.engine.make_url(settings().database_url).database != "study_trail_e2e":
     raise RuntimeError("Fake providers may only run against study_trail_e2e.")
+
+_resolve = socket.getaddrinfo
+def local_only_resolve(host, *args, **kwargs):
+    if host not in {"127.0.0.1", "localhost", "::1", b"127.0.0.1", b"localhost", None}:
+        raise RuntimeError("External network is disabled in the E2E provider process")
+    return _resolve(host, *args, **kwargs)
+socket.getaddrinfo = local_only_resolve
 
 
 class FakeGateway:

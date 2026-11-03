@@ -293,7 +293,9 @@ else:
 @pytest.mark.parametrize("transport", ["stdio", "streamable_http"])
 async def test_real_sdk_transports_discovery_schema_calls_timeout_cleanup(tmp_path, transport, student):
     script = tmp_path / "server.py"
-    script.write_text(SERVER_SOURCE, encoding="utf-8")
+    from pathlib import Path
+    packages = str(Path(__import__("mcp").__file__).parent.parent)
+    script.write_text("import site\nsite.addsitedir(" + repr(packages) + ")\n" + SERVER_SOURCE, encoding="utf-8")
     server = {
         **settings().mcp_servers()["exa"],
         "name": "fixture",

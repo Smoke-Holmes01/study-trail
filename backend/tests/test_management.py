@@ -18,7 +18,7 @@ from .test_workflow import FakeGateway
 @pytest.fixture
 def admin():
     with db.engine.begin() as conn:
-        user = db.insert(
+        db.insert(
             conn,
             db.users,
             login="admin_test",

@@ -34,8 +34,8 @@ def seed(client, resource):
 def test_mysql_baseline_and_constraints():
     with db.engine.connect() as conn:
         assert conn.dialect.name == "mysql"
-        assert len(db.metadata.tables) == 31
-        assert conn.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == "mysql_0001"
+        assert len(db.metadata.tables) == 44
+        assert conn.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == "mysql_0002"
         assert conn.scalar(sa.select(sa.func.count()).select_from(db.runtime_locks)) == 258
         assert "embedding" not in db.document_chunks.c
         assert conn.exec_driver_sql("SELECT @@transaction_isolation").scalar() == "READ-COMMITTED"
